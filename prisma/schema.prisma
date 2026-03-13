@@ -1,0 +1,384 @@
+
+generator client {
+  provider = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          String   @id @default(uuid())
+  username    String   @unique
+  password    String?
+  name        String
+  role        String
+  permissions String   // Stored as JSON string
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  accountGroupId String?
+  accountGroup   AccountGroup? @relation(fields: [accountGroupId], references: [id])
+}
+
+model AccountGroup {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  settlementByCompleted Boolean @default(true)
+  highTicketRate Float @default(0) // Percentage for high ticket commission
+  users       User[]
+  rules       CommissionRule[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model ChannelConfig {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  isEnabled   Boolean  @default(true)
+  settlementByCompleted Boolean @default(true)
+  rules       CommissionRule[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  orders      Order[]
+  promoters   Promoter[]
+}
+
+model AppConfig {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model CommissionRule {
+  id              String   @id @default(uuid())
+  type            String   @default("QUANTITY") // QUANTITY, GMV
+  minCount        Int
+  maxCount        Int?     // null represents infinity
+  percentage      Float
+  target          String   @default("USER") // USER, PROMOTER
+  
+  accountGroupId  String?
+  accountGroup    AccountGroup? @relation(fields: [accountGroupId], references: [id], onDelete: Cascade)
+  
+  channelConfigId String?
+  channelConfig   ChannelConfig? @relation(fields: [channelConfigId], references: [id], onDelete: Cascade)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model Promoter {
+  id        String   @id @default(uuid())
+  name      String
+  phone     String?
+  channel   String?
+  
+  channelConfigId String?
+  channelConfig   ChannelConfig? @relation(fields: [channelConfigId], references: [id])
+
+  creatorId String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  orders    Order[]
+}
+
+model OnlineOrder {
+  id                    String   @id @default(uuid())
+  orderNo               String   @unique
+  platform              String
+  status                String
+  merchantName          String?
+  productName           String?
+  variantName           String?
+  totalAmount           Float?
+  rentStartDate         DateTime?
+  returnDeadline        DateTime?
+  logisticsCompany      String?
+  trackingNumber        String?
+  latestLogisticsInfo   String?
+  returnLogisticsCompany String?
+  returnTrackingNumber  String?
+  returnLatestLogisticsInfo String?
+  promotionChannel      String?
+  
+  customerName          String?
+  recipientPhone        String?
+  address               String?
+  
+  duration              Int?
+  rentPrice             Float?
+  deposit               Float?
+  insurancePrice        Float?
+
+  itemTitle             String?
+  itemSku               String?
+  productId             String?
+  specId                String?
+  spec                  ProductSpec? @relation(fields: [specId], references: [id], onDelete: SetNull)
+  customerXianyuId      String?
+  sourceContact         String?
+  source                String?
+  manualSn              String?
+  
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([platform])
+  @@index([status])
+  @@index([platform, status])
+  @@index([createdAt])
+  @@index([updatedAt])
+  @@index([customerName])
+  @@index([specId])
+}
+
+
+model BackupLog {
+  id        String   @id @default(uuid())
+  type      String
+  status    String
+  operator  String
+  details   String
+  timestamp DateTime @default(now())
+}
+
+model Product {
+  id            String   @id @default(uuid())
+  name          String
+  variants      String   // Stored as JSON string
+  matchKeywords String?  // Stored as JSON string array, used for auto-mapping from external orders
+  totalStock    Int      @default(100)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  orders        Order[]
+  specs         ProductSpec[]
+}
+
+model ProductSpec {
+  id            String   @id @default(uuid())
+  specId        String   @unique
+  name          String
+  accessories   String
+  insurancePrice Float  @default(0)
+  priceRules    String
+  productId     String
+  product       Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  bomItems      SpecBom[]
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  orders        Order[]
+  onlineOrders  OnlineOrder[]
+  reservations  InventoryReservation[]
+}
+
+model SpecBom {
+  id         String   @id @default(uuid())
+  specId     String
+  spec       ProductSpec @relation(fields: [specId], references: [id], onDelete: Cascade)
+  itemTypeId String
+  itemType   InventoryItemType @relation(fields: [itemTypeId], references: [id])
+  quantity   Int
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model Warehouse {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  items     InventoryItem[]
+  stocks    InventoryStock[]
+  reservations InventoryReservation[]
+  allocations InventoryAllocation[]
+}
+
+model InventoryItemType {
+  id           String   @id @default(uuid())
+  name         String
+  isSerialized Boolean  @default(true)
+  unit         String?
+  category     String?
+  purchasePrice Float?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  items        InventoryItem[]
+  stocks       InventoryStock[]
+  bomItems     SpecBom[]
+  reservations InventoryReservation[]
+}
+
+model InventoryItem {
+  id         String   @id @default(uuid())
+  itemTypeId String
+  itemType   InventoryItemType @relation(fields: [itemTypeId], references: [id])
+  sn         String?
+  status     String   @default("AVAILABLE")
+  warehouseId String
+  warehouse  Warehouse @relation(fields: [warehouseId], references: [id])
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  allocations InventoryAllocation[]
+}
+
+model InventoryStock {
+  id         String   @id @default(uuid())
+  itemTypeId String
+  itemType   InventoryItemType @relation(fields: [itemTypeId], references: [id])
+  warehouseId String
+  warehouse  Warehouse @relation(fields: [warehouseId], references: [id])
+  quantity   Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([itemTypeId, warehouseId])
+}
+
+model InventoryReservation {
+  id         String   @id @default(uuid())
+  orderId    String
+  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  specId     String?
+  spec       ProductSpec? @relation(fields: [specId], references: [id], onDelete: SetNull)
+  itemTypeId String
+  itemType   InventoryItemType @relation(fields: [itemTypeId], references: [id])
+  warehouseId String
+  warehouse  Warehouse @relation(fields: [warehouseId], references: [id])
+  quantity   Int
+  startDate  DateTime
+  endDate    DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model InventoryAllocation {
+  id         String   @id @default(uuid())
+  orderId    String
+  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  itemId     String
+  item       InventoryItem @relation(fields: [itemId], references: [id])
+  warehouseId String
+  warehouse  Warehouse @relation(fields: [warehouseId], references: [id])
+  allocatedAt DateTime @default(now())
+  returnedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Order {
+  id          String   @id @default(uuid())
+  orderNo     String   @unique
+  source      String
+  platform    String?
+  promotionChannel String?
+  status      String
+  
+  customerXianyuId String
+  sourceContact    String
+  miniProgramOrderNo String?
+  xianyuOrderNo    String?
+  
+  productName String
+  variantName String
+  sn          String?
+  specId      String?
+  spec        ProductSpec? @relation(fields: [specId], references: [id], onDelete: SetNull)
+
+  itemTitle   String?
+  itemSku     String?
+  merchantName String?
+  
+  duration        Int
+  rentPrice       Float
+  deposit         Float
+  insurancePrice  Float
+  overdueFee      Float?
+  totalAmount     Float
+  
+  standardPrice   Float @default(0) // Standard price snapshot from product config
+  
+  address           String
+  recipientName     String?
+  recipientPhone    String?
+  trackingNumber    String?
+  logisticsCompany  String?
+  latestLogisticsInfo String?
+  
+  returnTrackingNumber    String?
+  returnLogisticsCompany  String?
+  returnLatestLogisticsInfo String?
+  
+  rentStartDate   DateTime?
+  deliveryTime    DateTime?
+  actualDeliveryTime DateTime?
+  completedAt    DateTime?
+  returnDeadline  DateTime?
+  
+  remark          String?
+  screenshot      String?
+  
+  promoterId      String?
+  promoter        Promoter? @relation(fields: [promoterId], references: [id])
+  
+  productId       String?
+  product         Product?  @relation(fields: [productId], references: [id])
+  
+  channelId       String?
+  channel         ChannelConfig? @relation(fields: [channelId], references: [id])
+
+  settled         Boolean  @default(false)
+
+  creatorId       String
+  creatorName     String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  extensions      OrderExtension[]
+  logs            OrderLog[]
+  reservations    InventoryReservation[]
+  allocations     InventoryAllocation[]
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([specId])
+  @@index([promoterId])
+  @@index([channelId])
+}
+
+model OrderExtension {
+  id        String   @id @default(uuid())
+  days      Int
+  price     Float
+  createdAt DateTime @default(now())
+  
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+model OrderLog {
+  id        String   @id @default(uuid())
+  action    String
+  desc      String?
+  operator  String
+  createdAt DateTime @default(now())
+  
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+}
+
+model ManualChapter {
+  id        String   @id @default(uuid())
+  title     String
+  content   String   // Markdown content
+  order     Int      @default(0)
+  isEnabled Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
