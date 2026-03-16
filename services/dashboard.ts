@@ -129,7 +129,7 @@ export class DashboardService {
     });
 
     // 2. Process and aggregate data
-    const result = [];
+    const result: { date: string; gmv: number; orderCount: number }[] = [];
     
     if (dimension === 'week') {
         // Aggregate by Week
@@ -367,7 +367,7 @@ export class DashboardService {
     prevOnlineOrders.forEach(o => processOrder(o.createdAt, mapPlatform(o.platform, o.promotionChannel), o.totalAmount || 0, true));
 
     // Format for ECharts
-    const result = [];
+    const result: Record<string, any>[] = [];
     const keys: string[] = [];
 
     // Generate keys based on dimension to ensure continuous axis

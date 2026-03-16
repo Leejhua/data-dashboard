@@ -1,43 +1,14 @@
 'use client';
 import React, { useState } from 'react';
-import { Breadcrumb, Layout, theme, Table, Card, Form, Input, Select, Button, DatePicker, Tag, Space, Tabs } from 'antd';
+import { Breadcrumb, theme, Table, Card, Form, Input, Select, Button, DatePicker, Tag, Space, Tabs, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import useSWR from 'swr';
 import { SearchOutlined, ReloadOutlined, DownloadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
+import MainLayout from '../components/MainLayout';
 
-const { Header, Content, Footer, Sider } = Layout;
 const { RangePicker } = DatePicker;
-
-import {
-  DesktopOutlined,
-  FileOutlined,
-  PieChartOutlined,
-} from '@ant-design/icons';
-import type { MenuProps } from 'antd';
-import { Menu } from 'antd';
-import { useRouter, usePathname } from 'next/navigation';
-
-type MenuItem = Required<MenuProps>['items'][number];
-
-function getItem(
-  label: React.ReactNode,
-  key: React.Key,
-  icon?: React.ReactNode,
-  children?: MenuItem[],
-): MenuItem {
-  return {
-    key,
-    icon,
-    children,
-    label,
-  } as MenuItem;
-}
-
-const items: MenuItem[] = [
-  getItem('数据看板', '/', <PieChartOutlined />),
-  getItem('订单管理', '/orders', <DesktopOutlined />),
-];
+const { Text } = Typography;
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json());
 
@@ -60,15 +31,12 @@ interface Order {
 }
 
 const OrdersPage: React.FC = () => {
-  const [collapsed, setCollapsed] = useState(false);
   const [activeTab, setActiveTab] = useState('offline'); // 'offline' | 'online'
   const [activePlatform, setActivePlatform] = useState('ALL'); // For online orders sub-tab
   
   const {
     token: { colorBgContainer, borderRadiusLG },
   } = theme.useToken();
-  const router = useRouter();
-  const pathname = usePathname();
 
   // Search State
   const [filters, setFilters] = useState({
@@ -163,8 +131,8 @@ const OrdersPage: React.FC = () => {
       title: '订单号',
       dataIndex: 'orderNo',
       key: 'orderNo',
-      copyable: true,
       width: 180,
+      render: (text) => <Text copyable>{text}</Text>,
     },
     {
       title: '商品',
@@ -247,7 +215,7 @@ const OrdersPage: React.FC = () => {
       title: '物流单号',
       dataIndex: 'trackingNumber',
       key: 'trackingNumber',
-      copyable: true,
+      render: (text) => text ? <Text copyable>{text}</Text> : '-',
     },
     {
       title: '推广员',
@@ -270,8 +238,8 @@ const OrdersPage: React.FC = () => {
       title: '订单号',
       dataIndex: 'orderNo',
       key: 'orderNo',
-      copyable: true,
       width: 180,
+      render: (text) => <Text copyable>{text}</Text>,
     },
     {
       title: '商户',
@@ -368,10 +336,9 @@ const OrdersPage: React.FC = () => {
       title: '物流',
       dataIndex: 'trackingNumber',
       key: 'trackingNumber',
-      copyable: true,
       render: (text, record) => (
          <Space orientation="vertical" size={0}>
-           <span>{text || '-'}</span>
+           <Text copyable>{text || '-'}</Text>
            <span style={{ fontSize: 12, color: '#999' }}>{(record as any).logisticsCompany || ''}</span>
          </Space>
       )
@@ -388,105 +355,87 @@ const OrdersPage: React.FC = () => {
   const columns = activeTab === 'online' ? onlineColumns : offlineColumns;
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
-      <Sider collapsible collapsed={collapsed} onCollapse={(value) => setCollapsed(value)} theme="light">
-        <div style={{ height: 32, margin: 16, background: 'rgba(0, 0, 0, 0.05)', borderRadius: 4 }} />
-        <Menu 
-          theme="light" 
-          defaultSelectedKeys={[pathname]} 
-          mode="inline" 
-          items={items} 
-          onClick={({ key }) => router.push(key)}
+    <MainLayout>
+      <Breadcrumb style={{ margin: '16px 0' }} items={[{ title: '订单管理' }, { title: '订单列表' }]} />
+      
+      <div style={{ padding: 24, minHeight: 360, background: colorBgContainer, borderRadius: borderRadiusLG }}>
+        <Tabs 
+          defaultActiveKey="offline" 
+          activeKey={activeTab} 
+          onChange={handleTabChange}
+          items={[
+            { key: 'offline', label: '线下订单' },
+            { key: 'online', label: '线上订单' },
+          ]}
+          className="mb-4"
         />
-      </Sider>
-      <Layout>
-        <Header style={{ padding: 0, background: colorBgContainer }} />
-        <Content style={{ margin: '0 16px' }}>
-          <Breadcrumb style={{ margin: '16px 0' }} items={[{ title: '订单管理' }, { title: '订单列表' }]} />
-          
-          <div style={{ padding: 24, minHeight: 360, background: colorBgContainer, borderRadius: borderRadiusLG }}>
-            <Tabs 
-              defaultActiveKey="offline" 
-              activeKey={activeTab} 
-              onChange={handleTabChange}
-              items={[
-                { key: 'offline', label: '线下订单' },
-                { key: 'online', label: '线上订单' },
-              ]}
-              className="mb-4"
-            />
 
-            {activeTab === 'online' && (
-              <Tabs
-                activeKey={activePlatform}
-                onChange={handlePlatformChange}
-                type="card"
-                className="mb-4"
-                items={[
-                  { key: 'ALL', label: '全部' },
-                  { key: 'ZANCHEN', label: '赞晨' },
-                  { key: '奥租', label: '奥租' },
-                  { key: '零零享', label: '零零享' },
-                  { key: '优品租', label: '优品租' },
-                  { key: '诚赁', label: '诚赁' },
-                  { key: '人人租', label: '人人租' },
-                  { key: '支付宝小程序', label: '支付宝小程序' },
-                ]}
-              />
-            )}
+        {activeTab === 'online' && (
+          <Tabs
+            activeKey={activePlatform}
+            onChange={handlePlatformChange}
+            type="card"
+            className="mb-4"
+            items={[
+              { key: 'ALL', label: '全部' },
+              { key: 'ZANCHEN', label: '赞晨' },
+              { key: '奥租', label: '奥租' },
+              { key: '零零享', label: '零零享' },
+              { key: '优品租', label: '优品租' },
+              { key: '诚赁', label: '诚赁' },
+              { key: '人人租', label: '人人租' },
+              { key: '支付宝小程序', label: '支付宝小程序' },
+            ]}
+          />
+        )}
 
-            <Card variant="borderless" className="mb-4">
-              <Form form={form} layout="inline" onFinish={handleSearch}>
-                <Form.Item name="orderNo" label="订单号">
-                  <Input placeholder="输入订单号" allowClear />
-                </Form.Item>
-                <Form.Item name="status" label="状态">
-                  <Select placeholder="选择状态" allowClear style={{ width: 120 }}>
-                    <Select.Option value="COMPLETED">已完成</Select.Option>
-                    <Select.Option value="REFUNDED">已退款</Select.Option>
-                    <Select.Option value="PENDING">进行中</Select.Option>
-                  </Select>
-                </Form.Item>
-                <Form.Item name="dateRange" label="创建时间">
-                  <RangePicker />
-                </Form.Item>
-                <Form.Item>
-                  <Space>
-                    <Button type="primary" htmlType="submit" icon={<SearchOutlined />}>
-                      查询
-                    </Button>
-                    <Button onClick={handleReset} icon={<ReloadOutlined />}>
-                      重置
-                    </Button>
-                    <Button onClick={handleExport} icon={<DownloadOutlined />}>
-                      导出 Excel
-                    </Button>
-                  </Space>
-                </Form.Item>
-              </Form>
-            </Card>
+        <Card variant="borderless" className="mb-4">
+          <Form form={form} layout="inline" onFinish={handleSearch}>
+            <Form.Item name="orderNo" label="订单号">
+              <Input placeholder="输入订单号" allowClear />
+            </Form.Item>
+            <Form.Item name="status" label="状态">
+              <Select placeholder="选择状态" allowClear style={{ width: 120 }}>
+                <Select.Option value="COMPLETED">已完成</Select.Option>
+                <Select.Option value="REFUNDED">已退款</Select.Option>
+                <Select.Option value="PENDING">进行中</Select.Option>
+              </Select>
+            </Form.Item>
+            <Form.Item name="dateRange" label="创建时间">
+              <RangePicker />
+            </Form.Item>
+            <Form.Item>
+              <Space>
+                <Button type="primary" htmlType="submit" icon={<SearchOutlined />}>
+                  查询
+                </Button>
+                <Button onClick={handleReset} icon={<ReloadOutlined />}>
+                  重置
+                </Button>
+                <Button onClick={handleExport} icon={<DownloadOutlined />}>
+                  导出 Excel
+                </Button>
+              </Space>
+            </Form.Item>
+          </Form>
+        </Card>
 
-            <Table
-              columns={columns}
-              dataSource={data?.data}
-              loading={isLoading}
-              rowKey="id"
-              pagination={{
-                current: filters.page,
-                pageSize: filters.pageSize,
-                total: data?.pagination?.total,
-                showSizeChanger: true,
-                showTotal: (total) => `共 ${total} 条`,
-              }}
-              onChange={handleTableChange}
-            />
-          </div>
-        </Content>
-        <Footer style={{ textAlign: 'center' }}>
-          Ant Design ©{new Date().getFullYear()} Created by Ant UED
-        </Footer>
-      </Layout>
-    </Layout>
+        <Table
+          columns={columns}
+          dataSource={data?.data}
+          loading={isLoading}
+          rowKey="id"
+          pagination={{
+            current: filters.page,
+            pageSize: filters.pageSize,
+            total: data?.pagination?.total,
+            showSizeChanger: true,
+            showTotal: (total) => `共 ${total} 条`,
+          }}
+          onChange={handleTableChange}
+        />
+      </div>
+    </MainLayout>
   );
 };
 

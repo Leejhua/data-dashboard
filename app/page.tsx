@@ -1,57 +1,21 @@
 'use client';
 import React, { useState } from 'react';
-import {
-  DesktopOutlined,
-  FileOutlined,
-  PieChartOutlined,
-  TeamOutlined,
-  UserOutlined,
-} from '@ant-design/icons';
-import type { MenuProps } from 'antd';
-import { Breadcrumb, Layout, Menu, theme, Card, Row, Col, Statistic, Radio, Tooltip, Space } from 'antd';
+import { Card, Row, Col, Statistic, Radio, Tooltip, Space, theme, Breadcrumb } from 'antd';
 import useSWR from 'swr';
-import SalesChart from './components/Charts/SalesChart';
 import PlatformTrendChart from './components/Charts/PlatformTrendChart';
 import PlatformTrendGrid from './components/Charts/PlatformTrendGrid';
 import { InfoCircleOutlined, ArrowUpOutlined, ArrowDownOutlined } from '@ant-design/icons';
-
-import { useRouter, usePathname } from 'next/navigation';
+import MainLayout from './components/MainLayout';
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json());
 
-const { Header, Content, Footer, Sider } = Layout;
-
-type MenuItem = Required<MenuProps>['items'][number];
-
-function getItem(
-  label: React.ReactNode,
-  key: React.Key,
-  icon?: React.ReactNode,
-  children?: MenuItem[],
-): MenuItem {
-  return {
-    key,
-    icon,
-    children,
-    label,
-  } as MenuItem;
-}
-
-const items: MenuItem[] = [
-  getItem('数据看板', '/', <PieChartOutlined />),
-  getItem('订单管理', '/orders', <DesktopOutlined />),
-];
-
 const App: React.FC = () => {
-  const [collapsed, setCollapsed] = useState(false);
   const [dimension, setDimension] = useState<'day' | 'week' | 'month'>('day');
   const [metric, setMetric] = useState<'gmv' | 'order'>('order'); // 'gmv' | 'order'
 
   const {
     token: { colorBgContainer, borderRadiusLG },
   } = theme.useToken();
-  const router = useRouter();
-  const pathname = usePathname();
 
   // Fetch Summary Data
   const { data: summary, isLoading: isSummaryLoading } = useSWR('/api/dashboard/summary', fetcher);
@@ -95,104 +59,86 @@ const App: React.FC = () => {
   };
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
-      <Sider collapsible collapsed={collapsed} onCollapse={(value) => setCollapsed(value)} theme="light">
-        <div style={{ height: 32, margin: 16, background: 'rgba(0, 0, 0, 0.05)', borderRadius: 4 }} />
-        <Menu 
-          theme="light" 
-          defaultSelectedKeys={[pathname]} 
-          mode="inline" 
-          items={items} 
-          onClick={({ key }) => router.push(key)}
-        />
-      </Sider>
-      <Layout>
-        <Header style={{ padding: 0, background: colorBgContainer }} />
-        <Content style={{ margin: '0 16px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Breadcrumb style={{ margin: '16px 0' }} items={[{ title: '数据看板' }, { title: '概览' }]} />
-            <Radio.Group value={dimension} onChange={(e) => setDimension(e.target.value)} buttonStyle="solid">
-              <Radio.Button value="day">日维度</Radio.Button>
-              <Radio.Button value="week">周维度</Radio.Button>
-              <Radio.Button value="month">月维度</Radio.Button>
-            </Radio.Group>
-          </div>
-          
-          <div style={{ padding: 24, minHeight: 360, background: colorBgContainer, borderRadius: borderRadiusLG }}>
-            <Row gutter={16}>
-              <Col span={8}>
-                <Card loading={isSummaryLoading}>
-                  <Statistic 
-                    title={
-                        <Space>
-                            总销售额 (GMV)
-                            <Tooltip title="较前30天增长">
-                                <InfoCircleOutlined style={{ fontSize: 14, color: '#999' }} />
-                            </Tooltip>
-                        </Space>
-                    }
-                    value={summary?.totalGMV} 
-                    precision={2} 
-                    prefix="¥" 
-                    suffix={
-                        <Tooltip title={`前30天: ¥${summary?.recentGMV?.toFixed(2) || 0}`}>
-                            {renderGrowth(gmvGrowth)}
+    <MainLayout>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Breadcrumb style={{ margin: '16px 0' }} items={[{ title: '数据看板' }, { title: '概览' }]} />
+        <Radio.Group value={dimension} onChange={(e) => setDimension(e.target.value)} buttonStyle="solid">
+          <Radio.Button value="day">日维度</Radio.Button>
+          <Radio.Button value="week">周维度</Radio.Button>
+          <Radio.Button value="month">月维度</Radio.Button>
+        </Radio.Group>
+      </div>
+      
+      <div style={{ padding: 24, minHeight: 360, background: colorBgContainer, borderRadius: borderRadiusLG }}>
+        <Row gutter={16}>
+          <Col span={8}>
+            <Card loading={isSummaryLoading}>
+              <Statistic 
+                title={
+                    <Space>
+                        总销售额 (GMV)
+                        <Tooltip title="较前30天增长">
+                            <InfoCircleOutlined style={{ fontSize: 14, color: '#999' }} />
                         </Tooltip>
-                    }
-                  />
-                </Card>
-              </Col>
-              <Col span={8}>
-                <Card loading={isSummaryLoading}>
-                  <Statistic 
-                    title={
-                        <Space>
-                            总订单数
-                            <Tooltip title="较前30天增长">
-                                <InfoCircleOutlined style={{ fontSize: 14, color: '#999' }} />
-                            </Tooltip>
-                        </Space>
-                    }
-                    value={summary?.totalOrders} 
-                    suffix={
-                        <Tooltip title={`前30天: ${summary?.recentOrders || 0}`}>
-                            {renderGrowth(orderGrowth)}
+                    </Space>
+                }
+                value={summary?.totalGMV} 
+                precision={2} 
+                prefix="¥" 
+                suffix={
+                    <Tooltip title={`前30天: ¥${summary?.recentGMV?.toFixed(2) || 0}`}>
+                        {renderGrowth(gmvGrowth)}
+                    </Tooltip>
+                }
+              />
+            </Card>
+          </Col>
+          <Col span={8}>
+            <Card loading={isSummaryLoading}>
+              <Statistic 
+                title={
+                    <Space>
+                        总订单数
+                        <Tooltip title="较前30天增长">
+                            <InfoCircleOutlined style={{ fontSize: 14, color: '#999' }} />
                         </Tooltip>
-                    }
-                  />
-                </Card>
-              </Col>
-              <Col span={8}>
-                <Card loading={isSummaryLoading}>
-                  <Statistic title="活跃推广员" value={summary?.activePromoters} />
-                </Card>
-              </Col>
-            </Row>
-            
-            <div style={{ marginTop: 24 }}>
-               <Card 
-                 title="各平台趋势" 
-                 extra={
-                   <Radio.Group value={metric} onChange={(e) => setMetric(e.target.value)} size="small">
-                     <Radio.Button value="order">订单量</Radio.Button>
-                     <Radio.Button value="gmv">销售额</Radio.Button>
-                   </Radio.Group>
-                 }
-               >
-                  <PlatformTrendChart data={chartData} loading={isPlatformTrendLoading} />
-               </Card>
-            </div>
-            
-            <div style={{ marginTop: 24 }}>
-              <PlatformTrendGrid data={chartData} loading={isPlatformTrendLoading} />
-            </div>
-          </div>
-        </Content>
-        <Footer style={{ textAlign: 'center' }}>
-          Ant Design ©{new Date().getFullYear()} Created by Ant UED
-        </Footer>
-      </Layout>
-    </Layout>
+                    </Space>
+                }
+                value={summary?.totalOrders} 
+                suffix={
+                    <Tooltip title={`前30天: ${summary?.recentOrders || 0}`}>
+                        {renderGrowth(orderGrowth)}
+                    </Tooltip>
+                }
+              />
+            </Card>
+          </Col>
+          <Col span={8}>
+            <Card loading={isSummaryLoading}>
+              <Statistic title="活跃推广员" value={summary?.activePromoters} />
+            </Card>
+          </Col>
+        </Row>
+        
+        <div style={{ marginTop: 24 }}>
+           <Card 
+             title="各平台趋势" 
+             extra={
+               <Radio.Group value={metric} onChange={(e) => setMetric(e.target.value)} size="small">
+                 <Radio.Button value="order">订单量</Radio.Button>
+                 <Radio.Button value="gmv">销售额</Radio.Button>
+               </Radio.Group>
+             }
+           >
+              <PlatformTrendChart data={chartData} loading={isPlatformTrendLoading} />
+           </Card>
+        </div>
+        
+        <div style={{ marginTop: 24 }}>
+          <PlatformTrendGrid data={chartData} loading={isPlatformTrendLoading} />
+        </div>
+      </div>
+    </MainLayout>
   );
 };
 
