@@ -1,12 +1,18 @@
 import React from 'react';
 import ReactECharts from 'echarts-for-react';
+import type { PlatformTrendViewData } from './types';
 
 interface PlatformTrendChartProps {
-  data: {
-    data: any[];
-    platforms: string[];
-  };
+  data: PlatformTrendViewData;
   loading: boolean;
+}
+
+interface TrendTooltipParam {
+  dataIndex: number;
+  seriesName: string;
+  marker: string;
+  value: number | string;
+  color: string;
 }
 
 const PlatformTrendChart: React.FC<PlatformTrendChartProps> = ({ data, loading }) => {
@@ -23,7 +29,7 @@ const PlatformTrendChart: React.FC<PlatformTrendChartProps> = ({ data, loading }
   const option = {
     tooltip: {
       trigger: 'axis',
-      formatter: (params: any[]) => {
+      formatter: (params: TrendTooltipParam[]) => {
         if (!params || params.length === 0) return '';
         const dataIndex = params[0].dataIndex;
         const currentItem = chartData[dataIndex];
@@ -32,14 +38,14 @@ const PlatformTrendChart: React.FC<PlatformTrendChartProps> = ({ data, loading }
 
         let html = `<div style="font-weight: bold; margin-bottom: 8px;">${date}</div>`;
         
-        params.forEach(param => {
+        params.forEach((param) => {
             const platformName = param.seriesName;
-            const value = param.value;
+            const value = Number(param.value || 0);
             const color = param.color;
             
             let growthStr = '';
             if (prevItem) {
-                const prevValue = prevItem[platformName];
+                const prevValue = Number(prevItem[platformName] || 0);
                 if (prevValue) {
                     const growth = ((value - prevValue) / prevValue) * 100;
                     const isPositive = growth >= 0;
@@ -88,16 +94,15 @@ const PlatformTrendChart: React.FC<PlatformTrendChartProps> = ({ data, loading }
     xAxis: {
       type: 'category',
       boundaryGap: false,
-      data: chartData.map(item => item.date),
+      data: chartData.map((item) => item.date),
     },
     yAxis: {
       type: 'value',
     },
-    series: platforms.map(platform => ({
+    series: platforms.map((platform) => ({
       name: platform,
       type: 'line',
-      // stack: 'Total', // Removed to show individual lines clearly instead of stacked values
-      data: chartData.map(item => item[platform] || 0),
+      data: chartData.map((item) => Number(item[platform] || 0)),
       smooth: true,
     })),
   };

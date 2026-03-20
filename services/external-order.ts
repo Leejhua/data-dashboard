@@ -7,14 +7,44 @@ interface ExternalOrder {
   source?: string;
   platform: string;
   status: string;
-  productName: string;
-  totalAmount: number;
+  productName?: string;
+  variantName?: string;
+  totalAmount: number | string | null;
+  overdueFee?: number | string | null;
   recipientName?: string;
   recipientPhone?: string;
   address?: string;
   logisticsCompany?: string;
   trackingNumber?: string;
-  creatorName?: string; // For offline orders
+  latestLogisticsInfo?: string | null;
+  returnLogisticsCompany?: string | null;
+  returnTrackingNumber?: string | null;
+  returnLatestLogisticsInfo?: string | null;
+  creatorName?: string;
+  customerXianyuId?: string;
+  sourceContact?: string;
+  sn?: string | null;
+  duration?: number | string | null;
+  rentPrice?: number | string | null;
+  deposit?: number | string | null;
+  insurancePrice?: number | string | null;
+  rentStartDate?: string | null;
+  returnDeadline?: string | null;
+  deliveryTime?: string | null;
+  actualDeliveryTime?: string | null;
+  completedAt?: string | null;
+  remark?: string | null;
+  merchantName?: string;
+  itemTitle?: string;
+  itemSku?: string;
+  promotionChannel?: string;
+  customerName?: string;
+  manualSn?: string | null;
+  specId?: string | null;
+  spec?: {
+    specId?: string | null;
+    name?: string | null;
+  } | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -26,6 +56,9 @@ interface ExternalResponse {
   data: ExternalOrder[];
 }
 
+type QueryValue = string | number | boolean | null | undefined;
+type QueryParams = Record<string, QueryValue>;
+
 export class ExternalOrderService {
   private static getHeaders() {
     return {
@@ -34,8 +67,17 @@ export class ExternalOrderService {
     };
   }
 
-  static async fetchOrders(params: any): Promise<ExternalResponse> {
-    const queryString = new URLSearchParams(params).toString();
+  private static toQueryString(params: QueryParams) {
+    const searchParams = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value === null || value === undefined) return;
+      searchParams.set(key, String(value));
+    });
+    return searchParams.toString();
+  }
+
+  static async fetchOrders(params: QueryParams): Promise<ExternalResponse> {
+    const queryString = this.toQueryString(params);
     const response = await fetch(`${API_URL}/api/orders?${queryString}`, {
       headers: this.getHeaders(),
     });
@@ -47,8 +89,8 @@ export class ExternalOrderService {
     return response.json();
   }
 
-  static async fetchOnlineOrders(params: any): Promise<ExternalResponse> {
-    const queryString = new URLSearchParams(params).toString();
+  static async fetchOnlineOrders(params: QueryParams): Promise<ExternalResponse> {
+    const queryString = this.toQueryString(params);
     const response = await fetch(`${API_URL}/api/online-orders?${queryString}`, {
       headers: this.getHeaders(),
     });

@@ -2,9 +2,16 @@
 import { NextResponse } from 'next/server';
 import { ReportService } from '@/services/report';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const period = searchParams.get('period') as 'week' | 'biweek' | 'month' || 'week';
+  const allowedPeriods = ['week', 'biweek', 'month', 'current_week', 'current_month'] as const;
+  type ReportPeriod = (typeof allowedPeriods)[number];
+  const rawPeriod = searchParams.get('period');
+  const period: ReportPeriod = (rawPeriod && allowedPeriods.includes(rawPeriod as ReportPeriod))
+    ? (rawPeriod as ReportPeriod)
+    : 'week';
 
   try {
     const data = await ReportService.getReportData(period);

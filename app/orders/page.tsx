@@ -2,9 +2,11 @@
 import React, { useState } from 'react';
 import { Breadcrumb, theme, Table, Card, Form, Input, Select, Button, DatePicker, Tag, Space, Tabs, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
+import type { TablePaginationConfig } from 'antd/es/table';
 import useSWR from 'swr';
 import { SearchOutlined, ReloadOutlined, DownloadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
+import type { Dayjs } from 'dayjs';
 import MainLayout from '../components/MainLayout';
 
 const { RangePicker } = DatePicker;
@@ -25,9 +27,27 @@ interface Order {
   recipientPhone?: string;
   address?: string;
   trackingNumber?: string;
+  logisticsCompany?: string;
   // Online Order fields
   merchantName?: string;
   itemSku?: string;
+}
+
+interface OrdersApiResponse {
+  data: Order[];
+  pagination?: {
+    total: number;
+    page: number;
+    pageSize: number;
+    totalPages: number;
+  };
+}
+
+interface OrderSearchValues {
+  orderNo?: string;
+  status?: string;
+  platform?: string;
+  dateRange?: [Dayjs, Dayjs];
 }
 
 const OrdersPage: React.FC = () => {
@@ -64,7 +84,7 @@ const OrdersPage: React.FC = () => {
   }).toString();
 
   const apiUrl = activeTab === 'online' ? '/api/online-orders' : '/api/orders';
-  const { data, isLoading, mutate } = useSWR(`${apiUrl}?${queryString}`, fetcher);
+  const { data, isLoading } = useSWR<OrdersApiResponse>(`${apiUrl}?${queryString}`, fetcher);
 
   const handleTabChange = (key: string) => {
     setActiveTab(key);
@@ -80,7 +100,7 @@ const OrdersPage: React.FC = () => {
     setFilters({ ...filters, page: 1 });
   };
 
-  const handleSearch = (values: any) => {
+  const handleSearch = (values: OrderSearchValues) => {
     const { dateRange, ...rest } = values;
     setFilters({
       ...filters,
@@ -104,11 +124,11 @@ const OrdersPage: React.FC = () => {
     });
   };
 
-  const handleTableChange = (pagination: any) => {
+  const handleTableChange = (pagination: TablePaginationConfig) => {
     setFilters({
       ...filters,
-      page: pagination.current,
-      pageSize: pagination.pageSize,
+      page: pagination.current || 1,
+      pageSize: pagination.pageSize || 10,
     });
   };
 
@@ -131,8 +151,8 @@ const OrdersPage: React.FC = () => {
       title: '订单号',
       dataIndex: 'orderNo',
       key: 'orderNo',
-      width: 180,
-      render: (text) => <Text copyable>{text}</Text>,
+      width: 210,
+      render: (text) => <Text copyable style={{ whiteSpace: 'nowrap' }}>{text}</Text>,
     },
     {
       title: '商品',
@@ -192,7 +212,10 @@ const OrdersPage: React.FC = () => {
       dataIndex: 'totalAmount',
       key: 'totalAmount',
       width: 100,
-      render: (val) => `¥${val.toFixed(2)}`,
+      render: (val) => {
+        if (val === null || val === undefined) return '-';
+        return `¥${Number(val).toFixed(2)}`;
+      },
     },
     {
       title: '收件人',
@@ -238,8 +261,8 @@ const OrdersPage: React.FC = () => {
       title: '订单号',
       dataIndex: 'orderNo',
       key: 'orderNo',
-      width: 180,
-      render: (text) => <Text copyable>{text}</Text>,
+      width: 210,
+      render: (text) => <Text copyable style={{ whiteSpace: 'nowrap' }}>{text}</Text>,
     },
     {
       title: '商户',
@@ -319,7 +342,10 @@ const OrdersPage: React.FC = () => {
       dataIndex: 'totalAmount',
       key: 'totalAmount',
       width: 100,
-      render: (val) => `¥${val.toFixed(2)}`,
+      render: (val) => {
+        if (val === null || val === undefined) return '-';
+        return `¥${Number(val).toFixed(2)}`;
+      },
     },
     {
       title: '收件人',
@@ -339,7 +365,7 @@ const OrdersPage: React.FC = () => {
       render: (text, record) => (
          <Space orientation="vertical" size={0}>
            <Text copyable>{text || '-'}</Text>
-           <span style={{ fontSize: 12, color: '#999' }}>{(record as any).logisticsCompany || ''}</span>
+           <span style={{ fontSize: 12, color: '#999' }}>{record.logisticsCompany || ''}</span>
          </Space>
       )
     },
@@ -425,6 +451,7 @@ const OrdersPage: React.FC = () => {
           dataSource={data?.data}
           loading={isLoading}
           rowKey="id"
+          scroll={{ x: 'max-content' }}
           pagination={{
             current: filters.page,
             pageSize: filters.pageSize,

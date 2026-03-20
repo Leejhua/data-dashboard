@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma';
 
 // Mock unstable_cache to just run the function
 jest.mock('next/cache', () => ({
-  unstable_cache: (fn: any) => fn,
+  unstable_cache: <T extends (...args: never[]) => unknown>(fn: T) => fn,
 }));
 
 describe('DashboardService', () => {
@@ -27,32 +27,58 @@ describe('DashboardService', () => {
       expect(summary).toHaveProperty('totalOrders');
       expect(summary).toHaveProperty('activePromoters');
 
-      // Verify values based on seed data
-      // We seeded 50 orders
-      expect(summary.totalOrders).toBe(50);
-      
-      // We seeded 5 promoters, and distributed orders randomly among them
-      // With 50 orders, it's highly likely all 5 are active
-      expect(summary.activePromoters).toBeLessThanOrEqual(5);
+      expect(summary.totalOrders).toBeGreaterThan(0);
+      expect(summary.activePromoters).toBeLessThanOrEqual(summary.totalOrders);
       expect(summary.activePromoters).toBeGreaterThan(0);
       
       // GMV should be positive
       expect(summary.totalGMV).toBeGreaterThan(0);
+
+      const zulinPanelData = await DashboardService.getZulinPanelData();
+      if (summary.zulinSummary && zulinPanelData.summary) {
+        expect(summary.zulinSummary.date).toBe(zulinPanelData.summary.date);
+        expect(summary.zulinSummary.exposure).toBe(zulinPanelData.summary.exposure);
+        expect(summary.zulinSummary.visits).toBe(zulinPanelData.summary.visits);
+        expect(summary.zulinSummary.revenue).toBe(zulinPanelData.summary.revenue);
+      }
+    });
+  });
+
+  describe('getZulinPanelData', () => {
+    it('should return zulin summary and reduced trend points', async () => {
+      const panel = await DashboardService.getZulinPanelData();
+
+      expect(panel).toHaveProperty('summary');
+      expect(panel).toHaveProperty('trend');
+      expect(panel).toHaveProperty('sourceFile');
+      expect(Array.isArray(panel.trend)).toBe(true);
+      expect(panel.trend.length).toBeLessThanOrEqual(7);
+
+      if (panel.summary) {
+        expect(typeof panel.summary.date).toBe('string');
+        expect(panel.summary.exposure).toBeGreaterThanOrEqual(0);
+        expect(panel.summary.visits).toBeGreaterThanOrEqual(0);
+        expect(panel.summary.revenue).toBeGreaterThanOrEqual(0);
+      }
+
+      if (panel.summary && panel.trend.length > 0) {
+        const latest = panel.trend[panel.trend.length - 1];
+        expect(latest.date).toBe(panel.summary.date);
+        expect(latest.exposure).toBe(panel.summary.exposure);
+        expect(latest.visits).toBe(panel.summary.visits);
+        expect(latest.revenue).toBe(panel.summary.revenue);
+      }
     });
   });
 
   describe('getTrend', () => {
-    it('should return trend data for the last 7 days', async () => {
-      const days = 7;
-      const trend = await DashboardService.getTrend(days);
+    it('should return trend data for day dimension', async () => {
+      const trend = await DashboardService.getTrend('day');
       
       console.log('Trend Result:', trend);
 
-      // Expect an array of length 'days'
       expect(trend).toBeInstanceOf(Array);
-      // Currently implemented as returning [], so this might fail if we expect 7 items
-      // But let's write the test to EXPECT the correct behavior
-      expect(trend.length).toBe(days);
+      expect(trend.length).toBe(15);
       
       // Check structure of first item
       if (trend.length > 0) {

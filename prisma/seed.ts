@@ -17,7 +17,7 @@ async function main() {
   console.log('Deleted existing data.')
 
   // 1. Create Account Group
-  const accountGroup = await prisma.accountGroup.create({
+  await prisma.accountGroup.create({
     data: {
       name: 'Default Group',
       description: 'Default account group for testing',

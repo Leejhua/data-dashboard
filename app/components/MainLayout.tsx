@@ -1,17 +1,17 @@
 
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   DesktopOutlined,
-  FileOutlined,
   PieChartOutlined,
   BarChartOutlined,
+  ApartmentOutlined,
 } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
-import { Layout, Menu, theme } from 'antd';
+import { Layout, Menu } from 'antd';
 import { useRouter, usePathname } from 'next/navigation';
 
-const { Header, Content, Footer, Sider } = Layout;
+const { Content, Footer, Sider } = Layout;
 
 type MenuItem = Required<MenuProps>['items'][number];
 
@@ -32,6 +32,7 @@ function getItem(
 const items: MenuItem[] = [
   getItem('数据看板', '/', <PieChartOutlined />),
   getItem('订单管理', '/orders', <DesktopOutlined />),
+  getItem('映射管理', '/product-mappings', <ApartmentOutlined />),
   getItem('数据报表', '/reports', <BarChartOutlined />),
 ];
 
@@ -39,18 +40,20 @@ interface MainLayoutProps {
   children: React.ReactNode;
 }
 
+const SIDEBAR_COLLAPSE_STORAGE_KEY = 'dashboard_sidebar_collapsed';
+
 const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
-  const [collapsed, setCollapsed] = useState(false);
-  const {
-    token: { colorBgContainer, borderRadiusLG },
-  } = theme.useToken();
+  const [collapsed, setCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem(SIDEBAR_COLLAPSE_STORAGE_KEY) === '1';
+  });
   const router = useRouter();
   const pathname = usePathname();
-  const [selectedKeys, setSelectedKeys] = useState<string[]>([pathname]);
+  const selectedKeys = pathname ? [pathname] : [];
 
   useEffect(() => {
-    setSelectedKeys([pathname]);
-  }, [pathname]);
+    window.localStorage.setItem(SIDEBAR_COLLAPSE_STORAGE_KEY, collapsed ? '1' : '0');
+  }, [collapsed]);
 
   const onMenuClick: MenuProps['onClick'] = (e) => {
     router.push(e.key);
@@ -62,7 +65,6 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
         <div style={{ height: 32, margin: 16, background: 'rgba(0, 0, 0, 0.05)', borderRadius: 4 }} />
         <Menu 
           theme="light" 
-          defaultSelectedKeys={['/']} 
           selectedKeys={selectedKeys}
           mode="inline" 
           items={items} 

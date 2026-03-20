@@ -62,7 +62,7 @@ export async function GET(request: Request) {
 
     // Return response with correct headers
     // Using simple buffer response for now
-    return new NextResponse(buffer as any, {
+    return new NextResponse(buffer as BodyInit, {
       headers: {
         'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         'Content-Disposition': `attachment; filename="orders-${Date.now()}.xlsx"`,

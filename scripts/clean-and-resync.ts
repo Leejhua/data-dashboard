@@ -29,8 +29,7 @@ async function syncOfflineOrders() {
         break;
       }
 
-      for (const order of response.data) {
-        const ext = order as any;
+      for (const ext of response.data) {
 
         await prisma.order.upsert({
           where: { orderNo: ext.orderNo },
@@ -108,8 +107,7 @@ async function syncOnlineOrders() {
         break;
       }
 
-      for (const order of response.data) {
-        const ext = order as any;
+      for (const ext of response.data) {
 
         // Skip orders with obviously bad data
         if (ext.platform === '顺丰速运' || ext.productName === '顺丰速运' || (ext.orderNo && ext.orderNo.length > 50 && ext.orderNo.includes('省'))) {
