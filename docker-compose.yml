@@ -3,10 +3,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: dashboard
     restart: always
-    expose:
-      - "3000"
+    ports:
+      - "${APP_PORT:-3015}:3000"
     environment:
       NODE_ENV: production
       DATABASE_URL: ${DATABASE_URL}
