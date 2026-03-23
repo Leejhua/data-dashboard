@@ -143,51 +143,39 @@ export class ReportService {
       const prevStartKey = ReportService.dateKey(prevStart);
       const prevEndKey = ReportService.dateKey(prevEnd);
 
-      const currentRows = await prisma.$queryRawUnsafe<
-        Array<{
-          data_date: string;
-          exposure: number;
-          visits: number;
-          amount: number;
-        }>
-      >(
-        `
-          SELECT
-            data_date,
-            COALESCE(SUM(exposure), 0) AS exposure,
-            COALESCE(SUM(visits), 0) AS visits,
-            COALESCE(SUM(amount), 0) AS amount
-          FROM zulin_daily_metrics
-          WHERE data_date >= ? AND data_date < ?
-          GROUP BY data_date
-          ORDER BY data_date ASC
-        `,
-        startKey,
-        endKey
-      );
+      const currentRows = await prisma.$queryRaw<{
+        data_date: string;
+        exposure: number;
+        visits: number;
+        amount: number;
+      }[]>`
+        SELECT
+          data_date,
+          COALESCE(SUM(exposure), 0) AS exposure,
+          COALESCE(SUM(visits), 0) AS visits,
+          COALESCE(SUM(amount), 0) AS amount
+        FROM zulin_daily_metrics
+        WHERE data_date >= ${startKey} AND data_date < ${endKey}
+        GROUP BY data_date
+        ORDER BY data_date ASC
+      `;
 
-      const prevRows = await prisma.$queryRawUnsafe<
-        Array<{
-          data_date: string;
-          exposure: number;
-          visits: number;
-          amount: number;
-        }>
-      >(
-        `
-          SELECT
-            data_date,
-            COALESCE(SUM(exposure), 0) AS exposure,
-            COALESCE(SUM(visits), 0) AS visits,
-            COALESCE(SUM(amount), 0) AS amount
-          FROM zulin_daily_metrics
-          WHERE data_date >= ? AND data_date < ?
-          GROUP BY data_date
-          ORDER BY data_date ASC
-        `,
-        prevStartKey,
-        prevEndKey
-      );
+      const prevRows = await prisma.$queryRaw<{
+        data_date: string;
+        exposure: number;
+        visits: number;
+        amount: number;
+      }[]>`
+        SELECT
+          data_date,
+          COALESCE(SUM(exposure), 0) AS exposure,
+          COALESCE(SUM(visits), 0) AS visits,
+          COALESCE(SUM(amount), 0) AS amount
+        FROM zulin_daily_metrics
+        WHERE data_date >= ${prevStartKey} AND data_date < ${prevEndKey}
+        GROUP BY data_date
+        ORDER BY data_date ASC
+      `;
 
       const sumRows = (rows: Array<{ exposure: number; visits: number; amount: number }>) => {
         return rows.reduce(
@@ -236,36 +224,24 @@ export class ReportService {
         };
       });
 
-      const productRows = await prisma.$queryRawUnsafe<
-        Array<{
-          product_id: string;
-          title: string;
-          current_exposure: number;
-          current_visits: number;
-          current_amount: number;
-          previous_amount: number;
-        }>
-      >(
-        `
-          SELECT
-            product_id,
-            title,
-            COALESCE(SUM(CASE WHEN data_date >= ? AND data_date < ? THEN exposure ELSE 0 END), 0) AS current_exposure,
-            COALESCE(SUM(CASE WHEN data_date >= ? AND data_date < ? THEN visits ELSE 0 END), 0) AS current_visits,
-            COALESCE(SUM(CASE WHEN data_date >= ? AND data_date < ? THEN amount ELSE 0 END), 0) AS current_amount,
-            COALESCE(SUM(CASE WHEN data_date >= ? AND data_date < ? THEN amount ELSE 0 END), 0) AS previous_amount
-          FROM zulin_daily_metrics
-          GROUP BY product_id, title
-        `,
-        startKey,
-        endKey,
-        startKey,
-        endKey,
-        startKey,
-        endKey,
-        prevStartKey,
-        prevEndKey
-      );
+      const productRows = await prisma.$queryRaw<{
+        product_id: string;
+        title: string;
+        current_exposure: number;
+        current_visits: number;
+        current_amount: number;
+        previous_amount: number;
+      }[]>`
+        SELECT
+          product_id,
+          title,
+          COALESCE(SUM(CASE WHEN data_date >= ${startKey} AND data_date < ${endKey} THEN exposure ELSE 0 END), 0) AS current_exposure,
+          COALESCE(SUM(CASE WHEN data_date >= ${startKey} AND data_date < ${endKey} THEN visits ELSE 0 END), 0) AS current_visits,
+          COALESCE(SUM(CASE WHEN data_date >= ${startKey} AND data_date < ${endKey} THEN amount ELSE 0 END), 0) AS current_amount,
+          COALESCE(SUM(CASE WHEN data_date >= ${prevStartKey} AND data_date < ${prevEndKey} THEN amount ELSE 0 END), 0) AS previous_amount
+        FROM zulin_daily_metrics
+        GROUP BY product_id, title
+      `;
 
       const products = productRows
         .map((item) => {

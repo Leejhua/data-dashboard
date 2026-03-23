@@ -156,54 +156,33 @@ export async function POST(request: Request) {
     const price = String(item.price || '').trim();
     const source = String(payload.source || 'extension').trim() || 'extension';
 
-    const existing = await prisma.$queryRawUnsafe<Array<{ id: string }>>(
-      `SELECT id FROM zulin_daily_metrics WHERE data_date = ? AND product_id = ? LIMIT 1`,
-      date,
-      productId
-    );
+    const existing = await prisma.$queryRaw<{ id: string }[]>`
+      SELECT id FROM zulin_daily_metrics WHERE data_date = ${date} AND product_id = ${productId} LIMIT 1
+    `;
     const wasExisting = existing.length > 0;
 
-    await prisma.$executeRawUnsafe(
-      `
-        INSERT INTO zulin_daily_metrics (
-          id, data_date, product_id, title, exposure, visits, amount, price,
-          managed_days, scope, start_date, end_date, optimization, source,
-          batch_id, created_at, updated_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(data_date, product_id) DO UPDATE SET
-          title = excluded.title,
-          exposure = excluded.exposure,
-          visits = excluded.visits,
-          amount = excluded.amount,
-          price = excluded.price,
-          managed_days = excluded.managed_days,
-          scope = excluded.scope,
-          start_date = excluded.start_date,
-          end_date = excluded.end_date,
-          optimization = excluded.optimization,
-          source = excluded.source,
-          batch_id = excluded.batch_id,
-          updated_at = excluded.updated_at
-      `,
-      rowId,
-      date,
-      productId,
-      title,
-      exposure,
-      visits,
-      amount,
-      price,
-      managedDays,
-      scope,
-      startDate || null,
-      endDate || null,
-      optimization,
-      source,
-      batchId,
-      now,
-      now
-    );
+    await prisma.$executeRaw`
+      INSERT INTO zulin_daily_metrics (
+        id, data_date, product_id, title, exposure, visits, amount, price,
+        managed_days, scope, start_date, end_date, optimization, source,
+        batch_id, created_at, updated_at
+      )
+      VALUES (${rowId}, ${date}, ${productId}, ${title}, ${exposure}, ${visits}, ${amount}, ${price}, ${managedDays}, ${scope}, ${startDate || null}, ${endDate || null}, ${optimization}, ${source}, ${batchId}, ${now}, ${now})
+      ON CONFLICT(data_date, product_id) DO UPDATE SET
+        title = excluded.title,
+        exposure = excluded.exposure,
+        visits = excluded.visits,
+        amount = excluded.amount,
+        price = excluded.price,
+        managed_days = excluded.managed_days,
+        scope = excluded.scope,
+        start_date = excluded.start_date,
+        end_date = excluded.end_date,
+        optimization = excluded.optimization,
+        source = excluded.source,
+        batch_id = excluded.batch_id,
+        updated_at = excluded.updated_at
+    `;
 
     if (wasExisting) {
       updated += 1;
@@ -212,21 +191,12 @@ export async function POST(request: Request) {
     }
   }
 
-  await prisma.$executeRawUnsafe(
-    `
-      INSERT INTO zulin_upload_batch (
-        id, source, payload_count, inserted_count, updated_count, failed_count, created_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `,
-    batchId,
-    String(payload.source || 'extension') || 'extension',
-    items.length,
-    inserted,
-    updated,
-    failed,
-    now
-  );
+  await prisma.$executeRaw`
+    INSERT INTO zulin_upload_batch (
+      id, source, payload_count, inserted_count, updated_count, failed_count, created_at
+    )
+    VALUES (${batchId}, ${String(payload.source || 'extension') || 'extension'}, ${items.length}, ${inserted}, ${updated}, ${failed}, ${now})
+  `;
 
   return NextResponse.json(
     {
