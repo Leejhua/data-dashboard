@@ -212,8 +212,49 @@ export class DashboardService {
         };
       });
 
+      const latestRow = rows[rows.length - 1];
       const latest = trendRows[trendRows.length - 1];
       const trend = DashboardService.reduceZulinTrendPoints(trendRows, DashboardService.ZULIN_TREND_POINTS);
+      const latestProducts = await prisma.$queryRaw<{
+        product_id: string;
+        title: string;
+        exposure: number;
+        visits: number;
+        amount: number;
+        managed_days: number;
+      }[]>`
+        SELECT
+          product_id,
+          title,
+          exposure,
+          visits,
+          amount,
+          managed_days
+        FROM zulin_daily_metrics
+        WHERE data_date = ${latestRow.data_date}
+      `;
+      const normalizedProducts = latestProducts.map((row) => {
+        const exposure = Number(row.exposure || 0);
+        const visits = Number(row.visits || 0);
+        const revenue = Number(row.amount || 0);
+        const managedDays = Number(row.managed_days || 0);
+        return {
+          productId: String(row.product_id || ''),
+          title: String(row.title || ''),
+          exposure,
+          visits,
+          revenue,
+          managedDays,
+          conversionRate: exposure > 0 ? (visits / exposure) * 100 : 0,
+        };
+      });
+      const topExposureProducts = [...normalizedProducts]
+        .sort((a, b) => b.exposure - a.exposure || b.visits - a.visits)
+        .slice(0, 10);
+      const lowExposureProducts = [...normalizedProducts]
+        .filter((item) => item.managedDays > 0)
+        .sort((a, b) => a.exposure - b.exposure || b.managedDays - a.managedDays)
+        .slice(0, 15);
 
       return {
         summary: {
@@ -224,6 +265,8 @@ export class DashboardService {
           conversionRate: latest.conversionRateText,
         },
         trend,
+        topExposureProducts,
+        lowExposureProducts,
         sourceFile: 'database',
       };
     } catch (error) {
@@ -245,6 +288,8 @@ export class DashboardService {
           return {
             summary: null,
             trend: [],
+            topExposureProducts: [],
+            lowExposureProducts: [],
             sourceFile: null,
           };
         }
@@ -256,6 +301,8 @@ export class DashboardService {
           return {
             summary: null,
             trend: [],
+            topExposureProducts: [],
+            lowExposureProducts: [],
             sourceFile: latestFile.name,
           };
         }
@@ -286,6 +333,8 @@ export class DashboardService {
           return {
             summary: null,
             trend: [],
+            topExposureProducts: [],
+            lowExposureProducts: [],
             sourceFile: latestFile.name,
           };
         }
@@ -303,6 +352,8 @@ export class DashboardService {
             conversionRate: latest.conversionRateText,
           },
           trend,
+          topExposureProducts: [],
+          lowExposureProducts: [],
           sourceFile: latestFile.name,
         };
       } catch (error) {
@@ -310,6 +361,8 @@ export class DashboardService {
         return {
           summary: null,
           trend: [],
+          topExposureProducts: [],
+          lowExposureProducts: [],
           sourceFile: null,
         };
       }

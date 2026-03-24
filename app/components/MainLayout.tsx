@@ -30,7 +30,10 @@ function getItem(
 }
 
 const items: MenuItem[] = [
-  getItem('数据看板', '/', <PieChartOutlined />),
+  getItem('数据看板', '/dashboard', <PieChartOutlined />, [
+    getItem('平台总览', '/dashboard/overview'),
+    getItem('芝麻租赁', '/dashboard/zulin'),
+  ]),
   getItem('订单管理', '/orders', <DesktopOutlined />),
   getItem('映射管理', '/product-mappings', <ApartmentOutlined />),
   getItem('数据报表', '/reports', <BarChartOutlined />),
@@ -49,7 +52,8 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   });
   const router = useRouter();
   const pathname = usePathname();
-  const selectedKeys = pathname ? [pathname] : [];
+  const selectedKeys = pathname ? [pathname === '/' ? '/dashboard/overview' : pathname] : [];
+  const openKeys = pathname?.startsWith('/dashboard') ? ['/dashboard'] : [];
 
   useEffect(() => {
     window.localStorage.setItem(SIDEBAR_COLLAPSE_STORAGE_KEY, collapsed ? '1' : '0');
@@ -66,6 +70,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
         <Menu 
           theme="light" 
           selectedKeys={selectedKeys}
+          defaultOpenKeys={openKeys}
           mode="inline" 
           items={items} 
           onClick={onMenuClick}

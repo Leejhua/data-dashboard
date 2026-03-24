@@ -124,13 +124,13 @@ interface ReportData {
 
 const ReportsPage: React.FC = () => {
   const [period, setPeriod] = useState<'week' | 'biweek' | 'month' | 'current_week' | 'current_month'>('week');
-  const [trendScope, setTrendScope] = useState<'all' | 'self'>('all');
+  const [scope, setScope] = useState<'all' | 'self'>('all');
   
   const {
     token: { colorBgContainer, borderRadiusLG },
   } = theme.useToken();
 
-  const { data, isLoading, error } = useSWR<ReportData>(`/api/reports?period=${period}`, fetcher, {
+  const { data, isLoading, error } = useSWR<ReportData>(`/api/reports?period=${period}&scope=${scope}`, fetcher, {
     shouldRetryOnError: false,
     revalidateOnFocus: false,
   });
@@ -153,13 +153,12 @@ const ReportsPage: React.FC = () => {
     if (!trend) return {};
     
     const labels = trend.dates;
-    const isSelf = trendScope === 'self';
-    const currentSeries = isSelf ? (trend.currentSelf || []) : (trend.current || []);
-    const previousSeries = isSelf ? (trend.previousSelf || []) : (trend.previous || []);
+    const currentSeries = trend.current || [];
+    const previousSeries = trend.previous || [];
     
     return {
       title: {
-        text: isSelf ? '趋势对比 (自有渠道)' : '趋势对比 (全渠道)',
+        text: scope === 'self' ? '趋势对比 (自有渠道)' : '趋势对比 (全渠道)',
         left: 'center'
       },
       tooltip: {
@@ -368,13 +367,19 @@ const ReportsPage: React.FC = () => {
     <MainLayout>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Breadcrumb style={{ margin: '16px 0' }} items={[{ title: '数据报表' }, { title: '报表概览' }]} />
-        <Radio.Group value={period} onChange={(e) => setPeriod(e.target.value)} buttonStyle="solid">
-          <Radio.Button value="current_week">本周</Radio.Button>
-          <Radio.Button value="current_month">本月</Radio.Button>
-          <Radio.Button value="week">近7天</Radio.Button>
-          <Radio.Button value="biweek">近14天</Radio.Button>
-          <Radio.Button value="month">近30天</Radio.Button>
-        </Radio.Group>
+        <Space>
+          <Radio.Group value={scope} onChange={(e) => setScope(e.target.value)} buttonStyle="solid">
+            <Radio.Button value="all">全渠道</Radio.Button>
+            <Radio.Button value="self">自有渠道</Radio.Button>
+          </Radio.Group>
+          <Radio.Group value={period} onChange={(e) => setPeriod(e.target.value)} buttonStyle="solid">
+            <Radio.Button value="current_week">本周</Radio.Button>
+            <Radio.Button value="current_month">本月</Radio.Button>
+            <Radio.Button value="week">近7天</Radio.Button>
+            <Radio.Button value="biweek">近14天</Radio.Button>
+            <Radio.Button value="month">近30天</Radio.Button>
+          </Radio.Group>
+        </Space>
       </div>
       
       <div style={{ padding: 24, minHeight: 360, background: colorBgContainer, borderRadius: borderRadiusLG }}>
@@ -390,7 +395,7 @@ const ReportsPage: React.FC = () => {
         {/* Scorecard */}
         <Row gutter={16} style={{ marginBottom: 24 }}>
           <Col span={6} style={{ display: 'flex' }}>
-            <Card loading={loading} style={{ width: '100%' }} bodyStyle={{ minHeight: 132 }}>
+            <Card loading={loading} style={{ width: '100%' }} styles={{ body: { minHeight: 132 } }}>
               <Statistic 
                 title="总销售额 (GMV)" 
                 value={data?.summary?.gmv} 
@@ -404,7 +409,7 @@ const ReportsPage: React.FC = () => {
             </Card>
           </Col>
           <Col span={6} style={{ display: 'flex' }}>
-            <Card loading={loading} style={{ width: '100%' }} bodyStyle={{ minHeight: 132 }}>
+            <Card loading={loading} style={{ width: '100%' }} styles={{ body: { minHeight: 132 } }}>
               <Statistic 
                 title="总订单数" 
                 value={data?.summary?.orderCount} 
@@ -416,7 +421,7 @@ const ReportsPage: React.FC = () => {
             </Card>
           </Col>
           <Col span={6} style={{ display: 'flex' }}>
-            <Card loading={loading} style={{ width: '100%' }} bodyStyle={{ minHeight: 132 }}>
+            <Card loading={loading} style={{ width: '100%' }} styles={{ body: { minHeight: 132 } }}>
               <Statistic 
                 title="客单价 (AOV)" 
                 value={data?.summary?.aov} 
@@ -430,7 +435,7 @@ const ReportsPage: React.FC = () => {
             </Card>
           </Col>
           <Col span={6} style={{ display: 'flex' }}>
-            <Card loading={loading} style={{ width: '100%' }} bodyStyle={{ minHeight: 132 }}>
+            <Card loading={loading} style={{ width: '100%' }} styles={{ body: { minHeight: 132 } }}>
               <Statistic 
                 title={
                     <Space>
@@ -457,12 +462,6 @@ const ReportsPage: React.FC = () => {
           title="趋势对比"
           style={{ marginBottom: 24 }}
           loading={loading}
-          extra={(
-            <Radio.Group value={trendScope} onChange={(e) => setTrendScope(e.target.value)} buttonStyle="solid" size="small">
-              <Radio.Button value="all">全渠道</Radio.Button>
-              <Radio.Button value="self">自有渠道</Radio.Button>
-            </Radio.Group>
-          )}
         >
           {data?.trend ? (
              <ReactECharts option={getTrendOption()} style={{ height: 350 }} />
@@ -532,79 +531,81 @@ const ReportsPage: React.FC = () => {
         </Card>
 
         {/* Channel Analysis */}
-        <Card title="渠道构成分析 (自有 vs 三方)" style={{ marginBottom: 24 }} loading={loading}>
-           <Row gutter={24}>
-             <Col span={8}>
-                <ReactECharts 
-                  option={{
-                    tooltip: { trigger: 'item' },
-                    legend: { bottom: 0 },
-                    series: [
-                      {
-                        type: 'pie',
-                        radius: ['40%', '70%'],
-                        avoidLabelOverlap: false,
-                        itemStyle: { borderRadius: 10, borderColor: '#fff', borderWidth: 2 },
-                        label: {
-                          show: true,
-                          position: 'center',
-                          formatter: 'GMV 占比',
-                          fontSize: 16,
-                          color: '#999'
-                        },
-                        labelLine: { show: false },
-                        emphasis: {
+        {scope === 'all' && (
+          <Card title="渠道构成分析 (自有 vs 三方)" style={{ marginBottom: 24 }} loading={loading}>
+             <Row gutter={24}>
+               <Col span={8}>
+                  <ReactECharts 
+                    option={{
+                      tooltip: { trigger: 'item' },
+                      legend: { bottom: 0 },
+                      series: [
+                        {
+                          type: 'pie',
+                          radius: ['40%', '70%'],
+                          avoidLabelOverlap: false,
+                          itemStyle: { borderRadius: 10, borderColor: '#fff', borderWidth: 2 },
                           label: {
                             show: true,
-                            formatter: '{b}\n{d}%',
-                            fontSize: 20,
-                            fontWeight: 'bold',
-                            color: '#333'
-                          }
+                            position: 'center',
+                            formatter: 'GMV 占比',
+                            fontSize: 16,
+                            color: '#999'
+                          },
+                          labelLine: { show: false },
+                          emphasis: {
+                            label: {
+                              show: true,
+                              formatter: '{b}\n{d}%',
+                              fontSize: 20,
+                              fontWeight: 'bold',
+                              color: '#333'
+                            }
+                          },
+                          data: [
+                            { value: data?.channelAnalysis?.summary?.self?.gmv || 0, name: '自有渠道' },
+                            { value: data?.channelAnalysis?.summary?.third?.gmv || 0, name: '三方渠道' }
+                          ]
+                        }
+                      ]
+                    }}
+                    style={{ height: 300 }}
+                  />
+               </Col>
+               <Col span={16}>
+                  <ReactECharts 
+                    option={{
+                      title: { text: '每日 GMV 贡献趋势', left: 'center' },
+                      tooltip: { trigger: 'axis' },
+                      legend: { bottom: 0 },
+                      grid: { left: '3%', right: '4%', bottom: '10%', containLabel: true },
+                      xAxis: { type: 'category', boundaryGap: false, data: data?.channelAnalysis?.trend?.dates || [] },
+                      yAxis: { type: 'value' },
+                      series: [
+                        {
+                          name: '自有渠道',
+                          type: 'line',
+                          stack: 'Total',
+                          areaStyle: {},
+                          emphasis: { focus: 'series' },
+                          data: data?.channelAnalysis?.trend?.self || []
                         },
-                        data: [
-                          { value: data?.channelAnalysis?.summary?.self?.gmv || 0, name: '自有渠道' },
-                          { value: data?.channelAnalysis?.summary?.third?.gmv || 0, name: '三方渠道' }
-                        ]
-                      }
-                    ]
-                  }}
-                  style={{ height: 300 }}
-                />
-             </Col>
-             <Col span={16}>
-                <ReactECharts 
-                  option={{
-                    title: { text: '每日 GMV 贡献趋势', left: 'center' },
-                    tooltip: { trigger: 'axis' },
-                    legend: { bottom: 0 },
-                    grid: { left: '3%', right: '4%', bottom: '10%', containLabel: true },
-                    xAxis: { type: 'category', boundaryGap: false, data: data?.channelAnalysis?.trend?.dates || [] },
-                    yAxis: { type: 'value' },
-                    series: [
-                      {
-                        name: '自有渠道',
-                        type: 'line',
-                        stack: 'Total',
-                        areaStyle: {},
-                        emphasis: { focus: 'series' },
-                        data: data?.channelAnalysis?.trend?.self || []
-                      },
-                      {
-                        name: '三方渠道',
-                        type: 'line',
-                        stack: 'Total',
-                        areaStyle: {},
-                        emphasis: { focus: 'series' },
-                        data: data?.channelAnalysis?.trend?.third || []
-                      }
-                    ]
-                  }}
-                  style={{ height: 300 }}
-                />
-             </Col>
-           </Row>
-        </Card>
+                        {
+                          name: '三方渠道',
+                          type: 'line',
+                          stack: 'Total',
+                          areaStyle: {},
+                          emphasis: { focus: 'series' },
+                          data: data?.channelAnalysis?.trend?.third || []
+                        }
+                      ]
+                    }}
+                    style={{ height: 300 }}
+                  />
+               </Col>
+             </Row>
+          </Card>
+        )}
 
         <Row gutter={24}>
           {/* Platform Performance */}

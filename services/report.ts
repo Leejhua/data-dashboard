@@ -4,6 +4,8 @@ type AllOrderLite = {
   createdAt: Date;
   status: string;
   totalAmount: number | null;
+  platform: string | null;
+  promotionChannel: string | null;
 };
 
 type ValidOrderLite = {
@@ -20,13 +22,18 @@ type ValidOrderLite = {
   specId: string | null;
 };
 
+type ReportScope = 'all' | 'self';
+
 export class ReportService {
   private static readonly VALID_STATUSES = ['COMPLETED', 'PENDING_SHIPMENT', 'RENTING', 'RETURNING', 'PENDING_RECEIPT', 'BOUGHT_OUT'];
   private static readonly REFUND_STATUSES = ['CLOSED', 'REFUNDED', 'CANCELED'];
   private static readonly SELF_PLATFORMS = ['赞晨', '支付宝小程序'];
   private static readonly ZULIN_TREND_POINTS = 10;
 
-  static async getReportData(period: 'week' | 'biweek' | 'month' | 'current_week' | 'current_month' = 'week') {
+  static async getReportData(
+    period: 'week' | 'biweek' | 'month' | 'current_week' | 'current_month' = 'week',
+    scope: ReportScope = 'all'
+  ) {
     const endDate = new Date();
     const startDate = new Date();
 
@@ -57,6 +64,8 @@ export class ReportService {
           createdAt: true,
           status: true,
           totalAmount: true,
+          platform: true,
+          promotionChannel: true,
         },
       }),
       prisma.onlineOrder.findMany({
@@ -77,12 +86,12 @@ export class ReportService {
       }),
     ]);
 
-    const currentData = ReportService.fetchPeriodData(allOrders, validOrders, startDate, endDate);
-    const prevData = ReportService.fetchPeriodData(allOrders, validOrders, prevStartDate, prevEndDate);
-    const platformData = ReportService.fetchPlatformData(validOrders, startDate, endDate);
-    const productData = await ReportService.fetchDeviceData(validOrders, startDate, endDate);
-    const channelAnalysis = ReportService.fetchChannelAnalysis(validOrders, startDate, endDate);
-    const trendData = ReportService.fetchTrendData(validOrders, startDate, endDate, prevStartDate, prevEndDate);
+    const currentData = ReportService.fetchPeriodData(allOrders, validOrders, startDate, endDate, scope);
+    const prevData = ReportService.fetchPeriodData(allOrders, validOrders, prevStartDate, prevEndDate, scope);
+    const platformData = ReportService.fetchPlatformData(validOrders, startDate, endDate, scope);
+    const productData = await ReportService.fetchDeviceData(validOrders, startDate, endDate, scope);
+    const channelAnalysis = scope === 'all' ? ReportService.fetchChannelAnalysis(validOrders, startDate, endDate) : null;
+    const trendData = ReportService.fetchTrendData(validOrders, startDate, endDate, prevStartDate, prevEndDate, scope);
     const zulinData = await ReportService.fetchZulinReportData(startDate, endDate, prevStartDate, prevEndDate);
 
     return {
@@ -378,7 +387,13 @@ export class ReportService {
     return ((current - previous) / previous) * 100;
   }
 
-  private static fetchPeriodData(allOrders: AllOrderLite[], validOrders: ValidOrderLite[], start: Date, end: Date) {
+  private static fetchPeriodData(
+    allOrders: AllOrderLite[],
+    validOrders: ValidOrderLite[],
+    start: Date,
+    end: Date,
+    scope: ReportScope
+  ) {
     let gmv = 0;
     let orderCount = 0;
     let totalOrdersCount = 0;
@@ -386,12 +401,14 @@ export class ReportService {
 
     for (const order of validOrders) {
       if (!ReportService.inRange(order.createdAt, start, end)) continue;
+      if (!ReportService.inScope(order.platform, order.promotionChannel, scope)) continue;
       gmv += order.totalAmount || 0;
       orderCount += 1;
     }
 
     for (const order of allOrders) {
       if (!ReportService.inRange(order.createdAt, start, end)) continue;
+      if (!ReportService.inScope(order.platform, order.promotionChannel, scope)) continue;
       totalOrdersCount += 1;
       if (ReportService.REFUND_STATUSES.includes(order.status)) {
         refundCount += 1;
@@ -407,12 +424,13 @@ export class ReportService {
     };
   }
 
-  private static fetchPlatformData(validOrders: ValidOrderLite[], start: Date, end: Date) {
+  private static fetchPlatformData(validOrders: ValidOrderLite[], start: Date, end: Date, scope: ReportScope) {
     const map: Record<string, { gmv: number, count: number }> = {};
     let totalGmv = 0;
 
     for (const item of validOrders) {
       if (!ReportService.inRange(item.createdAt, start, end)) continue;
+      if (!ReportService.inScope(item.platform, item.promotionChannel, scope)) continue;
       const name = ReportService.normalizePlatform(item.platform, item.promotionChannel);
       const gmv = item.totalAmount || 0;
 
@@ -430,12 +448,15 @@ export class ReportService {
     })).sort((a, b) => b.gmv - a.gmv);
   }
 
-  private static async fetchDeviceData(validOrders: ValidOrderLite[], start: Date, end: Date) {
+  private static async fetchDeviceData(validOrders: ValidOrderLite[], start: Date, end: Date, scope: ReportScope) {
+    const scopedOrders = validOrders.filter((item) =>
+      ReportService.inScope(item.platform, item.promotionChannel, scope)
+    );
     const specIds = Array.from(
-      new Set(validOrders.map((item) => item.specId).filter((value): value is string => Boolean(value)))
+      new Set(scopedOrders.map((item) => item.specId).filter((value): value is string => Boolean(value)))
     );
     const orderProductIds = Array.from(
-      new Set(validOrders.map((item) => item.productId).filter((value): value is string => Boolean(value)))
+      new Set(scopedOrders.map((item) => item.productId).filter((value): value is string => Boolean(value)))
     );
     const specs = specIds.length > 0
       ? await prisma.productSpec.findMany({
@@ -469,7 +490,7 @@ export class ReportService {
     );
 
     const deviceMap: Record<string, { gmv: number; count: number }> = {};
-    for (const item of validOrders) {
+    for (const item of scopedOrders) {
       if (!ReportService.inRange(item.createdAt, start, end)) continue;
       const deviceName = ReportService.resolveDeviceName(item, specDeviceNameBySpecId, productNameById);
       if (!deviceMap[deviceName]) deviceMap[deviceName] = { gmv: 0, count: 0 };
@@ -507,36 +528,32 @@ export class ReportService {
     return fallback || '未知设备';
   }
 
-  private static fetchTrendData(validOrders: ValidOrderLite[], start: Date, end: Date, prevStart: Date, prevEnd: Date) {
-    const currentMapAll: Record<string, number> = {};
-    const prevMapAll: Record<string, number> = {};
-    const currentMapSelf: Record<string, number> = {};
-    const prevMapSelf: Record<string, number> = {};
+  private static fetchTrendData(
+    validOrders: ValidOrderLite[],
+    start: Date,
+    end: Date,
+    prevStart: Date,
+    prevEnd: Date,
+    scope: ReportScope
+  ) {
+    const currentMap: Record<string, number> = {};
+    const prevMap: Record<string, number> = {};
 
     for (const item of validOrders) {
       const dateStr = ReportService.dateKey(item.createdAt);
       const gmv = item.totalAmount || 0;
-      const platformName = ReportService.normalizePlatform(item.platform, item.promotionChannel);
-      const isSelf = ReportService.SELF_PLATFORMS.includes(platformName);
+      if (!ReportService.inScope(item.platform, item.promotionChannel, scope)) continue;
       if (ReportService.inRange(item.createdAt, start, end)) {
-        currentMapAll[dateStr] = (currentMapAll[dateStr] || 0) + gmv;
-        if (isSelf) {
-          currentMapSelf[dateStr] = (currentMapSelf[dateStr] || 0) + gmv;
-        }
+        currentMap[dateStr] = (currentMap[dateStr] || 0) + gmv;
       }
       if (ReportService.inRange(item.createdAt, prevStart, prevEnd)) {
-        prevMapAll[dateStr] = (prevMapAll[dateStr] || 0) + gmv;
-        if (isSelf) {
-          prevMapSelf[dateStr] = (prevMapSelf[dateStr] || 0) + gmv;
-        }
+        prevMap[dateStr] = (prevMap[dateStr] || 0) + gmv;
       }
     }
 
     const dates: string[] = [];
-    const currentSeriesAll: number[] = [];
-    const prevSeriesAll: number[] = [];
-    const currentSeriesSelf: number[] = [];
-    const prevSeriesSelf: number[] = [];
+    const currentSeries: number[] = [];
+    const prevSeries: number[] = [];
     const currentDates: string[] = [];
     const prevDates: string[] = [];
     
@@ -554,10 +571,8 @@ export class ReportService {
       currentDates.push(dateStr);
       prevDates.push(prevDateStr);
       
-      currentSeriesAll.push(Number((currentMapAll[dateStr] || 0).toFixed(2)));
-      prevSeriesAll.push(Number((prevMapAll[prevDateStr] || 0).toFixed(2)));
-      currentSeriesSelf.push(Number((currentMapSelf[dateStr] || 0).toFixed(2)));
-      prevSeriesSelf.push(Number((prevMapSelf[prevDateStr] || 0).toFixed(2)));
+      currentSeries.push(Number((currentMap[dateStr] || 0).toFixed(2)));
+      prevSeries.push(Number((prevMap[prevDateStr] || 0).toFixed(2)));
       
       iterDate.setDate(iterDate.getDate() + 1);
       iterPrevDate.setDate(iterPrevDate.getDate() + 1);
@@ -567,10 +582,8 @@ export class ReportService {
       dates,
       currentDates,
       prevDates,
-      current: currentSeriesAll,
-      previous: prevSeriesAll,
-      currentSelf: currentSeriesSelf,
-      previousSelf: prevSeriesSelf
+      current: currentSeries,
+      previous: prevSeries
     };
   }
 
@@ -581,6 +594,14 @@ export class ReportService {
 
   private static dateKey(date: Date) {
     return date.toLocaleDateString('en-CA');
+  }
+
+  private static inScope(platform: string | null | undefined, promotionChannel: string | null | undefined, scope: ReportScope) {
+    if (scope === 'all') {
+      return true;
+    }
+    const normalized = ReportService.normalizePlatform(platform, promotionChannel);
+    return ReportService.SELF_PLATFORMS.includes(normalized);
   }
 
   private static normalizePlatform(platform: string | null | undefined, promotionChannel: string | null | undefined) {

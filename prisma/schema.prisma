@@ -382,3 +382,38 @@ model ManualChapter {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+model ZulinDailyMetrics {
+  id         String @id @map("id")
+  dataDate   String @map("data_date")
+  productId  String @map("product_id")
+  title      String @map("title")
+  exposure   Int    @default(0) @map("exposure")
+  visits     Int    @default(0) @map("visits")
+  amount     Float  @default(0) @db.Real @map("amount")
+  price      String? @map("price")
+  managedDays Int   @default(0) @map("managed_days")
+  scope      String? @map("scope")
+  startDate  String? @map("start_date")
+  endDate    String? @map("end_date")
+  optimization String? @map("optimization")
+  source     String? @map("source")
+  batchId    String? @map("batch_id")
+  createdAt  String @map("created_at")
+  updatedAt  String @map("updated_at")
+
+  @@unique([dataDate, productId])
+  @@map("zulin_daily_metrics")
+}
+
+model ZulinUploadBatch {
+  id           String @id @map("id")
+  source       String? @map("source")
+  payloadCount Int    @map("payload_count")
+  insertedCount Int   @map("inserted_count")
+  updatedCount Int    @map("updated_count")
+  failedCount  Int    @map("failed_count")
+  createdAt    String @map("created_at")
+
+  @@map("zulin_upload_batch")
+}
