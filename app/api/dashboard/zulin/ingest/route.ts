@@ -22,6 +22,19 @@ type IngestPayload = {
   items?: IngestItem[];
 };
 
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, x-zulin-token',
+};
+
+const jsonWithCors = (body: unknown, status: number) => {
+  return NextResponse.json(body, {
+    status,
+    headers: corsHeaders,
+  });
+};
+
 const toNumber = (value: unknown) => {
   const normalized = String(value ?? '').replace(/[,%\s]/g, '');
   const parsed = Number(normalized);
@@ -93,9 +106,7 @@ export async function OPTIONS() {
   return new NextResponse(null, {
     status: 204,
     headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, x-zulin-token',
+      ...corsHeaders,
       'Access-Control-Max-Age': '86400',
     },
   });
@@ -105,26 +116,26 @@ export async function POST(request: Request) {
   const token = process.env.ZULIN_INGEST_TOKEN || '';
   const requestToken = request.headers.get('x-zulin-token') || '';
   if (token && requestToken !== token) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return jsonWithCors({ error: 'Unauthorized' }, 401);
   }
 
   let payload: IngestPayload;
   try {
     payload = await request.json();
   } catch {
-    return NextResponse.json({ error: 'Invalid JSON payload' }, { status: 400 });
+    return jsonWithCors({ error: 'Invalid JSON payload' }, 400);
   }
 
   const date = toISODate(payload.date);
   const items = Array.isArray(payload.items) ? payload.items : [];
   if (!date) {
-    return NextResponse.json({ error: 'Invalid date' }, { status: 400 });
+    return jsonWithCors({ error: 'Invalid date' }, 400);
   }
   if (!items.length) {
-    return NextResponse.json({ error: 'No items to ingest' }, { status: 400 });
+    return jsonWithCors({ error: 'No items to ingest' }, 400);
   }
   if (items.length > 5000) {
-    return NextResponse.json({ error: 'Too many items in one request' }, { status: 400 });
+    return jsonWithCors({ error: 'Too many items in one request' }, 400);
   }
 
   await ensureTables();
@@ -209,9 +220,7 @@ export async function POST(request: Request) {
       failedItems: failedItems.slice(0, 20),
     },
     {
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-      },
+      headers: corsHeaders,
     }
   );
 }
