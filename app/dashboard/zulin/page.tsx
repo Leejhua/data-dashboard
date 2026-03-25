@@ -42,6 +42,16 @@ const productListCardStyles: { header: React.CSSProperties; body: React.CSSPrope
   header: sectionCardStyles.header,
   body: { ...sectionCardStyles.body, minHeight: productTableBodyHeight + 48 },
 };
+const rankBadgeStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 28,
+  height: 22,
+  borderRadius: 11,
+  fontWeight: 600,
+  fontVariantNumeric: 'tabular-nums',
+};
 const pageAlertStyle: React.CSSProperties = { marginBottom: 16 };
 const pageEmptyStyle: React.CSSProperties = { margin: '8px 0' };
 const overviewCardLoadingStyles: { header: React.CSSProperties; body: React.CSSProperties } = {
@@ -312,11 +322,24 @@ const ZulinPage: React.FC = () => {
       title: '排名',
       key: 'rank',
       width: 68,
+      align: 'center' as const,
       render: (_: unknown, __: ZulinProductRow, index: number) => {
+        const rank = index + 1;
         if (index < 3) {
-          return <Tag color="gold">{index + 1}</Tag>;
+          return (
+            <span
+              style={{
+                ...rankBadgeStyle,
+                color: '#d48806',
+                background: '#fff7e6',
+                border: '1px solid #ffd591',
+              }}
+            >
+              {rank}
+            </span>
+          );
         }
-        return index + 1;
+        return <span style={rankBadgeStyle}>{rank}</span>;
       },
     },
     {
@@ -347,7 +370,7 @@ const ZulinPage: React.FC = () => {
       render: (val: number) => formatInteger(val),
     },
     {
-      title: '转化率',
+      title: '访问率',
       dataIndex: 'conversionRate',
       key: 'conversionRate',
       width: 100,
@@ -409,9 +432,12 @@ const ZulinPage: React.FC = () => {
                   <Statistic title="交易金额（元）" value={toNumber(zulinSummary.revenue)} formatter={(value) => formatCurrency(Number(value))} />
                 </Col>
                 <Col xs={24} md={6} style={{ marginBottom: 12 }}>
-                  <Statistic title="访问转化率" value={toNumber(String(zulinSummary.conversionRate).replace('%', ''))} precision={2} suffix="%" />
+                  <Statistic title="访问率" value={toNumber(String(zulinSummary.conversionRate).replace('%', ''))} precision={2} suffix="%" />
                 </Col>
               </Row>
+              <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+                公式：访问率 = 商品访问次数 / 曝光次数
+              </Typography.Text>
               {zulinTrend.length > 0 ? (
                 <ReactECharts option={zulinChartOption} style={{ height: 320, marginTop: 8, marginBottom: 8 }} />
               ) : (
@@ -427,7 +453,6 @@ const ZulinPage: React.FC = () => {
           <Col xs={24} lg={12}>
             <Card size="small" title={<Typography.Text style={sectionCardTitleStyle}>最新统计日曝光 Top10 商品</Typography.Text>} styles={productListCardStyles}>
               <Table
-                className="zulin-table-hidden-scrollbar"
                 columns={productColumns}
                 dataSource={topExposureProducts}
                 rowKey="productId"
@@ -446,7 +471,6 @@ const ZulinPage: React.FC = () => {
               styles={productListCardStyles}
             >
               <Table
-                className="zulin-table-hidden-scrollbar"
                 columns={productColumns}
                 dataSource={lowExposureProducts}
                 rowKey="productId"
@@ -617,16 +641,6 @@ const ZulinPage: React.FC = () => {
           )}
         </Card>
       </div>
-      <style jsx global>{`
-        .zulin-table-hidden-scrollbar .ant-table-body {
-          -ms-overflow-style: none;
-          scrollbar-width: none;
-        }
-        .zulin-table-hidden-scrollbar .ant-table-body::-webkit-scrollbar {
-          width: 0;
-          height: 0;
-        }
-      `}</style>
     </MainLayout>
   );
 };

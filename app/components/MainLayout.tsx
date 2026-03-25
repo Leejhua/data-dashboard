@@ -33,6 +33,7 @@ const items: MenuItem[] = [
   getItem('数据看板', '/dashboard', <PieChartOutlined />, [
     getItem('平台总览', '/dashboard/overview'),
     getItem('芝麻租赁', '/dashboard/zulin'),
+    getItem('芝麻预警配置', '/dashboard/zulin/config'),
   ]),
   getItem('订单管理', '/orders', <DesktopOutlined />),
   getItem('映射管理', '/product-mappings', <ApartmentOutlined />),

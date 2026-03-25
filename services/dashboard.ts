@@ -4,6 +4,37 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import ExcelJS from 'exceljs';
 
+type ZulinAlertConfig = {
+  minManagedDays: number;
+  maxExposure: number;
+  maxVisitRate: number;
+  weightExposure: number;
+  weightVisitRate: number;
+  weightManagedDays: number;
+  minWarningScore: number;
+  maxWarningItems: number;
+  updatedAt: string;
+};
+
+type DailyOpsCard = {
+  id: string;
+  title: string;
+  level: 'high' | 'medium' | 'low';
+  tag: '可执行' | '观察项';
+  scope: 'controllable' | 'all';
+  insight: string;
+  action: string;
+  linkName?: string;
+  linkFullName?: string;
+  linkId?: string;
+  metric: {
+    unit: '¥' | '单' | '%';
+    current: number;
+    previous: number;
+    changeRate: number;
+  };
+};
+
 /**
  * Service Layer for Dashboard
  * Handles business logic and data aggregation
@@ -12,6 +43,18 @@ export class DashboardService {
   private static readonly VALID_STATUSES = ['COMPLETED', 'PENDING_SHIPMENT', 'RENTING', 'RETURNING', 'PENDING_RECEIPT', 'BOUGHT_OUT'];
   private static readonly CONTROLLABLE_PLATFORMS = ['闲鱼', '支付宝小程序', '赞晨'];
   private static readonly ZULIN_TREND_POINTS = 7;
+  private static readonly DAILY_OPS_MAX_CARDS = 8;
+  private static readonly ZULIN_ALERT_CONFIG_ID = 'default';
+  private static readonly ZULIN_ALERT_DEFAULT: Omit<ZulinAlertConfig, 'updatedAt'> = {
+    minManagedDays: 5,
+    maxExposure: 100,
+    maxVisitRate: 8,
+    weightExposure: 0.45,
+    weightVisitRate: 0.35,
+    weightManagedDays: 0.2,
+    minWarningScore: 60,
+    maxWarningItems: 15,
+  };
 
   /**
    * Get summary metrics for the dashboard
@@ -153,6 +196,133 @@ export class DashboardService {
     return `${matched[2]}月${matched[3]}日`;
   }
 
+  private static normalizeAlertConfig(raw: Partial<ZulinAlertConfig>) {
+    const defaults = DashboardService.ZULIN_ALERT_DEFAULT;
+    const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+    const asNumber = (value: unknown, fallback: number) => {
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric : fallback;
+    };
+    return {
+      minManagedDays: Math.round(clamp(asNumber(raw.minManagedDays, defaults.minManagedDays), 1, 365)),
+      maxExposure: Math.round(clamp(asNumber(raw.maxExposure, defaults.maxExposure), 1, 1000000)),
+      maxVisitRate: clamp(asNumber(raw.maxVisitRate, defaults.maxVisitRate), 0.1, 100),
+      weightExposure: clamp(asNumber(raw.weightExposure, defaults.weightExposure), 0, 1),
+      weightVisitRate: clamp(asNumber(raw.weightVisitRate, defaults.weightVisitRate), 0, 1),
+      weightManagedDays: clamp(asNumber(raw.weightManagedDays, defaults.weightManagedDays), 0, 1),
+      minWarningScore: clamp(asNumber(raw.minWarningScore, defaults.minWarningScore), 0, 100),
+      maxWarningItems: Math.round(clamp(asNumber(raw.maxWarningItems, defaults.maxWarningItems), 1, 200)),
+    };
+  }
+
+  private static async ensureZulinAlertConfigTable() {
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS zulin_alert_config (
+        id TEXT PRIMARY KEY,
+        min_managed_days INTEGER NOT NULL DEFAULT 5,
+        max_exposure INTEGER NOT NULL DEFAULT 100,
+        max_visit_rate REAL NOT NULL DEFAULT 8,
+        weight_exposure REAL NOT NULL DEFAULT 0.45,
+        weight_visit_rate REAL NOT NULL DEFAULT 0.35,
+        weight_managed_days REAL NOT NULL DEFAULT 0.2,
+        min_warning_score REAL NOT NULL DEFAULT 60,
+        max_warning_items INTEGER NOT NULL DEFAULT 15,
+        updated_at TEXT NOT NULL
+      )
+    `);
+    const now = new Date().toISOString();
+    const defaults = DashboardService.ZULIN_ALERT_DEFAULT;
+    await prisma.$executeRaw`
+      INSERT INTO zulin_alert_config (
+        id, min_managed_days, max_exposure, max_visit_rate, weight_exposure,
+        weight_visit_rate, weight_managed_days, min_warning_score, max_warning_items, updated_at
+      )
+      VALUES (
+        ${DashboardService.ZULIN_ALERT_CONFIG_ID}, ${defaults.minManagedDays}, ${defaults.maxExposure}, ${defaults.maxVisitRate}, ${defaults.weightExposure},
+        ${defaults.weightVisitRate}, ${defaults.weightManagedDays}, ${defaults.minWarningScore}, ${defaults.maxWarningItems}, ${now}
+      )
+      ON CONFLICT(id) DO NOTHING
+    `;
+  }
+
+  static async getZulinAlertConfig(): Promise<ZulinAlertConfig> {
+    await DashboardService.ensureZulinAlertConfigTable();
+    const rows = await prisma.$queryRaw<Array<{
+      min_managed_days: number;
+      max_exposure: number;
+      max_visit_rate: number;
+      weight_exposure: number;
+      weight_visit_rate: number;
+      weight_managed_days: number;
+      min_warning_score: number;
+      max_warning_items: number;
+      updated_at: string;
+    }>>`
+      SELECT
+        min_managed_days,
+        max_exposure,
+        max_visit_rate,
+        weight_exposure,
+        weight_visit_rate,
+        weight_managed_days,
+        min_warning_score,
+        max_warning_items,
+        updated_at
+      FROM zulin_alert_config
+      WHERE id = ${DashboardService.ZULIN_ALERT_CONFIG_ID}
+      LIMIT 1
+    `;
+    const row = rows[0];
+    const normalized = DashboardService.normalizeAlertConfig({
+      minManagedDays: row?.min_managed_days,
+      maxExposure: row?.max_exposure,
+      maxVisitRate: row?.max_visit_rate,
+      weightExposure: row?.weight_exposure,
+      weightVisitRate: row?.weight_visit_rate,
+      weightManagedDays: row?.weight_managed_days,
+      minWarningScore: row?.min_warning_score,
+      maxWarningItems: row?.max_warning_items,
+    });
+    return {
+      ...normalized,
+      updatedAt: row?.updated_at || new Date().toISOString(),
+    };
+  }
+
+  static async updateZulinAlertConfig(input: Partial<ZulinAlertConfig>): Promise<ZulinAlertConfig> {
+    await DashboardService.ensureZulinAlertConfigTable();
+    const current = await DashboardService.getZulinAlertConfig();
+    const normalized = DashboardService.normalizeAlertConfig({
+      minManagedDays: input.minManagedDays ?? current.minManagedDays,
+      maxExposure: input.maxExposure ?? current.maxExposure,
+      maxVisitRate: input.maxVisitRate ?? current.maxVisitRate,
+      weightExposure: input.weightExposure ?? current.weightExposure,
+      weightVisitRate: input.weightVisitRate ?? current.weightVisitRate,
+      weightManagedDays: input.weightManagedDays ?? current.weightManagedDays,
+      minWarningScore: input.minWarningScore ?? current.minWarningScore,
+      maxWarningItems: input.maxWarningItems ?? current.maxWarningItems,
+    });
+    const now = new Date().toISOString();
+    await prisma.$executeRaw`
+      UPDATE zulin_alert_config
+      SET
+        min_managed_days = ${normalized.minManagedDays},
+        max_exposure = ${normalized.maxExposure},
+        max_visit_rate = ${normalized.maxVisitRate},
+        weight_exposure = ${normalized.weightExposure},
+        weight_visit_rate = ${normalized.weightVisitRate},
+        weight_managed_days = ${normalized.weightManagedDays},
+        min_warning_score = ${normalized.minWarningScore},
+        max_warning_items = ${normalized.maxWarningItems},
+        updated_at = ${now}
+      WHERE id = ${DashboardService.ZULIN_ALERT_CONFIG_ID}
+    `;
+    return {
+      ...normalized,
+      updatedAt: now,
+    };
+  }
+
   private static async getZulinPanelDataFromDatabase() {
     try {
       await prisma.$executeRawUnsafe(`
@@ -215,6 +385,7 @@ export class DashboardService {
       const latestRow = rows[rows.length - 1];
       const latest = trendRows[trendRows.length - 1];
       const trend = DashboardService.reduceZulinTrendPoints(trendRows, DashboardService.ZULIN_TREND_POINTS);
+      const alertConfig = await DashboardService.getZulinAlertConfig();
       const latestProducts = await prisma.$queryRaw<{
         product_id: string;
         title: string;
@@ -251,10 +422,20 @@ export class DashboardService {
       const topExposureProducts = [...normalizedProducts]
         .sort((a, b) => b.exposure - a.exposure || b.visits - a.visits)
         .slice(0, 10);
+      const warningDenominator = alertConfig.weightExposure + alertConfig.weightVisitRate + alertConfig.weightManagedDays || 1;
       const lowExposureProducts = [...normalizedProducts]
-        .filter((item) => item.managedDays > 5 && item.exposure < 100)
-        .sort((a, b) => a.exposure - b.exposure || b.managedDays - a.managedDays)
-        .slice(0, 15);
+        .map((item) => {
+          const exposureRisk = 1 - Math.min(item.exposure / Math.max(alertConfig.maxExposure, 1), 1);
+          const visitRateRisk = 1 - Math.min(item.conversionRate / Math.max(alertConfig.maxVisitRate, 0.1), 1);
+          const managedDaysRisk = Math.min(item.managedDays / Math.max(alertConfig.minManagedDays * 2, 1), 1);
+          const warningScore = ((exposureRisk * alertConfig.weightExposure
+            + visitRateRisk * alertConfig.weightVisitRate
+            + managedDaysRisk * alertConfig.weightManagedDays) / warningDenominator) * 100;
+          return { ...item, warningScore };
+        })
+        .filter((item) => item.managedDays >= alertConfig.minManagedDays && item.exposure <= alertConfig.maxExposure && item.warningScore >= alertConfig.minWarningScore)
+        .sort((a, b) => b.warningScore - a.warningScore || a.exposure - b.exposure || b.managedDays - a.managedDays)
+        .slice(0, alertConfig.maxWarningItems);
 
       return {
         summary: {
@@ -845,6 +1026,162 @@ export class DashboardService {
     return `${normalized.slice(0, 14)}...`;
   }
 
+  private static isDailyOpsLlmEnabled() {
+    return String(process.env.DAILY_OPS_LLM_ENABLED || '').trim().toLowerCase() === 'true';
+  }
+
+  private static getDailyOpsLlmApiUrl() {
+    const custom = String(process.env.DAILY_OPS_LLM_API_URL || '').trim();
+    return custom || 'https://api.deepseek.com/chat/completions';
+  }
+
+  private static getDailyOpsLlmModel() {
+    const custom = String(process.env.DAILY_OPS_LLM_MODEL || '').trim();
+    return custom || 'deepseek-chat';
+  }
+
+  private static parseLlmJsonObject(content: string) {
+    const text = String(content || '').trim();
+    if (!text) return null;
+    const candidates = [text];
+    const fenced = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+    if (fenced?.[1]) {
+      candidates.unshift(fenced[1].trim());
+    }
+    const start = text.indexOf('{');
+    const end = text.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      candidates.push(text.slice(start, end + 1).trim());
+    }
+    for (const item of candidates) {
+      try {
+        const parsed = JSON.parse(item) as Record<string, unknown>;
+        if (parsed && typeof parsed === 'object') return parsed;
+      } catch {
+      }
+    }
+    return null;
+  }
+
+  private static sanitizeDailyOpsCards(raw: unknown, fallbackCards: DailyOpsCard[]) {
+    if (!Array.isArray(raw)) return null;
+    const fallbackMetricById = new Map(fallbackCards.map((item) => [item.id, item.metric]));
+    const fallbackLinkById = new Map(
+      fallbackCards.map((item) => [item.id, { linkName: item.linkName, linkFullName: item.linkFullName, linkId: item.linkId }])
+    );
+    const normalizeText = (value: unknown, fallback: string) => {
+      const text = String(value || '').trim();
+      return text || fallback;
+    };
+    const toNumber = (value: unknown, fallback: number) => {
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric : fallback;
+    };
+    const cards = raw
+      .map((item, index) => {
+        const row = item as Record<string, unknown>;
+        const fallbackId = fallbackCards[index]?.id || `llm-card-${index + 1}`;
+        const id = normalizeText(row.id, fallbackId).replace(/\s+/g, '-');
+        const metricRow = (row.metric as Record<string, unknown>) || {};
+        const fallbackMetric = fallbackMetricById.get(fallbackId) || { unit: '%', current: 0, previous: 0, changeRate: 0 };
+        const level = row.level === 'high' || row.level === 'medium' || row.level === 'low' ? row.level : 'medium';
+        const tag = row.tag === '可执行' || row.tag === '观察项' ? row.tag : '观察项';
+        const scope = row.scope === 'controllable' || row.scope === 'all' ? row.scope : 'all';
+        const unit = metricRow.unit === '¥' || metricRow.unit === '单' || metricRow.unit === '%' ? metricRow.unit : fallbackMetric.unit;
+        const fallbackLink = fallbackLinkById.get(fallbackId);
+        return {
+          id,
+          title: normalizeText(row.title, fallbackCards[index]?.title || '运营建议'),
+          level,
+          tag,
+          scope,
+          insight: normalizeText(row.insight, fallbackCards[index]?.insight || ''),
+          action: normalizeText(row.action, fallbackCards[index]?.action || ''),
+          linkName: normalizeText(row.linkName, fallbackLink?.linkName || ''),
+          linkFullName: normalizeText(row.linkFullName, fallbackLink?.linkFullName || ''),
+          linkId: normalizeText(row.linkId, fallbackLink?.linkId || ''),
+          metric: {
+            unit,
+            current: toNumber(metricRow.current, fallbackMetric.current),
+            previous: toNumber(metricRow.previous, fallbackMetric.previous),
+            changeRate: toNumber(metricRow.changeRate, fallbackMetric.changeRate),
+          },
+        } as DailyOpsCard;
+      })
+      .filter((item) => item.title && item.insight && item.action);
+    return cards.length ? cards.slice(0, DashboardService.DAILY_OPS_MAX_CARDS) : null;
+  }
+
+  private static async generateDailyOpsCardsWithLlm(input: {
+    now: string;
+    summary: {
+      currentAll: { gmv: number; orders: number; aov: number };
+      previousAll: { gmv: number; orders: number; aov: number };
+      currentControllable: { gmv: number; orders: number; aov: number };
+      previousControllable: { gmv: number; orders: number; aov: number };
+      currentShare: number;
+      previousShare: number;
+      shareChange: number;
+    };
+    platform: Array<{
+      name: string;
+      currentGmv: number;
+      previousGmv: number;
+      currentOrders: number;
+      previousOrders: number;
+      gmvGrowth: number;
+    }>;
+    zulinSnapshot: Awaited<ReturnType<typeof DashboardService.getZulinOpsSnapshot>>;
+    fallbackCards: DailyOpsCard[];
+  }): Promise<DailyOpsCard[] | null> {
+    if (!DashboardService.isDailyOpsLlmEnabled()) return null;
+    const apiUrl = DashboardService.getDailyOpsLlmApiUrl();
+    const apiKey = String(process.env.DAILY_OPS_LLM_API_KEY || '').trim();
+    const model = DashboardService.getDailyOpsLlmModel();
+    if (!apiUrl || !apiKey || !model) return null;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
+    try {
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model,
+          temperature: 0.2,
+          response_format: { type: 'json_object' },
+          messages: [
+            {
+              role: 'system',
+              content:
+                '你是电商运营分析助手。基于输入数据生成卡片建议，输出必须是 JSON 对象，结构为 {"cards":[...]}，cards 最多 8 条。每条必须包含 id/title/level/tag/scope/insight/action/metric(unit/current/previous/changeRate)。level 仅 high|medium|low，tag 仅 可执行|观察项，scope 仅 controllable|all，metric.unit 仅 ¥|单|%。不要输出 markdown。',
+            },
+            {
+              role: 'user',
+              content: JSON.stringify(input),
+            },
+          ],
+        }),
+      });
+      if (!response.ok) return null;
+      const result = await response.json().catch(() => null) as
+        | { choices?: Array<{ message?: { content?: string } }> }
+        | null;
+      const content = String(result?.choices?.[0]?.message?.content || '').trim();
+      if (!content) return null;
+      const parsed = DashboardService.parseLlmJsonObject(content) as { cards?: unknown } | null;
+      if (!parsed) return null;
+      return DashboardService.sanitizeDailyOpsCards(parsed.cards, input.fallbackCards);
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   static getDailyOpsCards = unstable_cache(
     async () => {
       const now = new Date();
@@ -921,24 +1258,7 @@ export class DashboardService {
       const shareChange = currentShare - previousShare;
       const zulinSnapshot = await DashboardService.getZulinOpsSnapshot(currentStart, previousStart, now);
 
-      const cards: Array<{
-        id: string;
-        title: string;
-        level: 'high' | 'medium' | 'low';
-        tag: '可执行' | '观察项';
-        scope: 'controllable' | 'all';
-        insight: string;
-        action: string;
-        linkName?: string;
-        linkFullName?: string;
-        linkId?: string;
-        metric: {
-          unit: '¥' | '单' | '%';
-          current: number;
-          previous: number;
-          changeRate: number;
-        };
-      }> = [];
+      const cards: DailyOpsCard[] = [];
 
       const controllableGmvGrowth = growth(currentControllable.gmv, previousControllable.gmv);
       const controllableOrderGrowth = growth(currentControllable.orders, previousControllable.orders);
@@ -1112,6 +1432,35 @@ export class DashboardService {
         metric: { unit: '%', current: currentShare, previous: previousShare, changeRate: shareChange },
       });
 
+      const platformMetrics = DashboardService.CONTROLLABLE_PLATFORMS.map((name) => {
+        const current = currentByPlatform.get(name) || { gmv: 0, orders: 0 };
+        const previous = previousByPlatform.get(name) || { gmv: 0, orders: 0 };
+        return {
+          name,
+          currentGmv: current.gmv,
+          previousGmv: previous.gmv,
+          currentOrders: current.orders,
+          previousOrders: previous.orders,
+          gmvGrowth: growth(current.gmv, previous.gmv),
+        };
+      });
+      const llmCards = await DashboardService.generateDailyOpsCardsWithLlm({
+        now: now.toISOString(),
+        summary: {
+          currentAll,
+          previousAll,
+          currentControllable,
+          previousControllable,
+          currentShare,
+          previousShare,
+          shareChange,
+        },
+        platform: platformMetrics,
+        zulinSnapshot,
+        fallbackCards: cards,
+      });
+      const finalCards = llmCards && llmCards.length ? llmCards : cards;
+
       return {
         summary: {
           controllable: {
@@ -1133,7 +1482,7 @@ export class DashboardService {
           controllableShare: currentShare,
           prevControllableShare: previousShare,
         },
-        cards: cards.slice(0, 8),
+        cards: finalCards.slice(0, DashboardService.DAILY_OPS_MAX_CARDS),
         controllablePlatforms: DashboardService.CONTROLLABLE_PLATFORMS,
         generatedAt: now.toISOString(),
       };
