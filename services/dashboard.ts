@@ -252,7 +252,7 @@ export class DashboardService {
         .sort((a, b) => b.exposure - a.exposure || b.visits - a.visits)
         .slice(0, 10);
       const lowExposureProducts = [...normalizedProducts]
-        .filter((item) => item.managedDays > 0)
+        .filter((item) => item.managedDays > 5 && item.exposure < 100)
         .sort((a, b) => a.exposure - b.exposure || b.managedDays - a.managedDays)
         .slice(0, 15);
 

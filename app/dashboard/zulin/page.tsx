@@ -364,7 +364,7 @@ const ZulinPage: React.FC = () => {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <Space orientation="vertical" size={2} style={{ margin: '16px 0' }}>
           <Breadcrumb items={[{ title: '数据看板' }, { title: '芝麻租赁' }]} />
-          <Typography.Text type="secondary">支付宝小程序经营数据与运营建议追踪</Typography.Text>
+          <Typography.Text type="secondary">支付宝小程序经营数据与运营建议追踪（默认按昨日统计口径）</Typography.Text>
         </Space>
         <Space wrap size={[8, 8]} style={headerControlWrapStyle}>
           {lastUpdatedAt ? <Tag color="success">上次刷新：{lastUpdatedAt}</Tag> : null}
@@ -384,7 +384,7 @@ const ZulinPage: React.FC = () => {
           loading={isZulinPanelLoading}
           extra={
             <Space size={[8, 8]} wrap>
-              {zulinSummary?.date ? <Tag color="processing">最新日期：{zulinSummary.date}</Tag> : null}
+              {zulinSummary?.date ? <Tag color="processing">最新统计日：{zulinSummary.date}</Tag> : null}
               {zulinPanel?.sourceFile ? <Tag color="default">来源：{zulinPanel.sourceFile}</Tag> : null}
             </Space>
           }
@@ -414,13 +414,13 @@ const ZulinPage: React.FC = () => {
               )}
             </>
           ) : (
-            <Empty description="暂无芝麻租赁分析结果，请先执行日分析脚本" style={pageEmptyStyle} />
+            <Empty description="暂无芝麻租赁分析结果，请先上传昨日数据" style={pageEmptyStyle} />
           )}
         </Card>
 
         <Row gutter={16} style={{ marginBottom: 24 }}>
           <Col xs={24} lg={12}>
-            <Card size="small" title={<Typography.Text style={sectionCardTitleStyle}>当日曝光 Top10 商品</Typography.Text>} styles={sectionCardStyles}>
+            <Card size="small" title={<Typography.Text style={sectionCardTitleStyle}>最新统计日曝光 Top10 商品</Typography.Text>} styles={sectionCardStyles}>
               <Table
                 columns={productColumns}
                 dataSource={topExposureProducts}
@@ -433,14 +433,14 @@ const ZulinPage: React.FC = () => {
             </Card>
           </Col>
           <Col xs={24} lg={12}>
-            <Card size="small" title={<Typography.Text style={sectionCardTitleStyle}>当日曝光后15商品</Typography.Text>} styles={sectionCardStyles}>
+            <Card size="small" title={<Typography.Text style={sectionCardTitleStyle}>托管&gt;5天 且 曝光&lt;100 商品</Typography.Text>} styles={sectionCardStyles}>
               <Table
                 columns={productColumns}
                 dataSource={lowExposureProducts}
                 rowKey="productId"
                 pagination={false}
                 size="small"
-                locale={{ emptyText: '暂无后15曝光数据' }}
+                locale={{ emptyText: '暂无符合条件商品' }}
                 scroll={{ x: 560 }}
               />
             </Card>
