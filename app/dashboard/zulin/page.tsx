@@ -37,6 +37,11 @@ const sectionCardStyles: { header: React.CSSProperties; body: React.CSSPropertie
   header: { padding: '12px 16px' },
   body: { padding: 16 },
 };
+const productTableBodyHeight = 390;
+const productListCardStyles: { header: React.CSSProperties; body: React.CSSProperties } = {
+  header: sectionCardStyles.header,
+  body: { ...sectionCardStyles.body, minHeight: productTableBodyHeight + 48 },
+};
 const pageAlertStyle: React.CSSProperties = { marginBottom: 16 };
 const pageEmptyStyle: React.CSSProperties = { margin: '8px 0' };
 const overviewCardLoadingStyles: { header: React.CSSProperties; body: React.CSSProperties } = {
@@ -420,7 +425,7 @@ const ZulinPage: React.FC = () => {
 
         <Row gutter={16} style={{ marginBottom: 24 }}>
           <Col xs={24} lg={12}>
-            <Card size="small" title={<Typography.Text style={sectionCardTitleStyle}>最新统计日曝光 Top10 商品</Typography.Text>} styles={sectionCardStyles}>
+            <Card size="small" title={<Typography.Text style={sectionCardTitleStyle}>最新统计日曝光 Top10 商品</Typography.Text>} styles={productListCardStyles}>
               <Table
                 columns={productColumns}
                 dataSource={topExposureProducts}
@@ -428,12 +433,17 @@ const ZulinPage: React.FC = () => {
                 pagination={false}
                 size="small"
                 locale={{ emptyText: '暂无 Top10 曝光数据' }}
-                scroll={{ x: 560 }}
+                scroll={{ x: 560, y: productTableBodyHeight }}
               />
             </Card>
           </Col>
           <Col xs={24} lg={12}>
-            <Card size="small" title={<Typography.Text style={sectionCardTitleStyle}>托管&gt;5天 且 曝光&lt;100 商品</Typography.Text>} styles={sectionCardStyles}>
+            <Card
+              size="small"
+              title={<Typography.Text style={sectionCardTitleStyle}>预警商品</Typography.Text>}
+              extra={<Tag color="warning">命中 {lowExposureProducts.length} 条</Tag>}
+              styles={productListCardStyles}
+            >
               <Table
                 columns={productColumns}
                 dataSource={lowExposureProducts}
@@ -441,7 +451,7 @@ const ZulinPage: React.FC = () => {
                 pagination={false}
                 size="small"
                 locale={{ emptyText: '暂无符合条件商品' }}
-                scroll={{ x: 560 }}
+                scroll={{ x: 560, y: productTableBodyHeight }}
               />
             </Card>
           </Col>
