@@ -35,6 +35,15 @@ type DailyOpsCard = {
   };
 };
 
+type DailyOpsLlmStatus = {
+  enabled: boolean;
+  attempted: boolean;
+  used: boolean;
+  reason: 'disabled' | 'missing_config' | 'request_failed' | 'empty_content' | 'invalid_json' | 'invalid_cards' | 'success';
+  model: string;
+  triggeredAt: string;
+};
+
 /**
  * Service Layer for Dashboard
  * Handles business logic and data aggregation
@@ -1133,12 +1142,23 @@ export class DashboardService {
     }>;
     zulinSnapshot: Awaited<ReturnType<typeof DashboardService.getZulinOpsSnapshot>>;
     fallbackCards: DailyOpsCard[];
-  }): Promise<DailyOpsCard[] | null> {
-    if (!DashboardService.isDailyOpsLlmEnabled()) return null;
+  }): Promise<{ cards: DailyOpsCard[] | null; status: DailyOpsLlmStatus }> {
+    const triggeredAt = new Date().toISOString();
+    if (!DashboardService.isDailyOpsLlmEnabled()) {
+      return {
+        cards: null,
+        status: { enabled: false, attempted: false, used: false, reason: 'disabled', model: '', triggeredAt },
+      };
+    }
     const apiUrl = DashboardService.getDailyOpsLlmApiUrl();
     const apiKey = String(process.env.DAILY_OPS_LLM_API_KEY || '').trim();
     const model = DashboardService.getDailyOpsLlmModel();
-    if (!apiUrl || !apiKey || !model) return null;
+    if (!apiUrl || !apiKey || !model) {
+      return {
+        cards: null,
+        status: { enabled: true, attempted: false, used: false, reason: 'missing_config', model: model || '', triggeredAt },
+      };
+    }
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 12000);
     try {
@@ -1166,17 +1186,45 @@ export class DashboardService {
           ],
         }),
       });
-      if (!response.ok) return null;
+      if (!response.ok) {
+        return {
+          cards: null,
+          status: { enabled: true, attempted: true, used: false, reason: 'request_failed', model, triggeredAt },
+        };
+      }
       const result = await response.json().catch(() => null) as
         | { choices?: Array<{ message?: { content?: string } }> }
         | null;
       const content = String(result?.choices?.[0]?.message?.content || '').trim();
-      if (!content) return null;
+      if (!content) {
+        return {
+          cards: null,
+          status: { enabled: true, attempted: true, used: false, reason: 'empty_content', model, triggeredAt },
+        };
+      }
       const parsed = DashboardService.parseLlmJsonObject(content) as { cards?: unknown } | null;
-      if (!parsed) return null;
-      return DashboardService.sanitizeDailyOpsCards(parsed.cards, input.fallbackCards);
+      if (!parsed) {
+        return {
+          cards: null,
+          status: { enabled: true, attempted: true, used: false, reason: 'invalid_json', model, triggeredAt },
+        };
+      }
+      const cards = DashboardService.sanitizeDailyOpsCards(parsed.cards, input.fallbackCards);
+      if (!cards || !cards.length) {
+        return {
+          cards: null,
+          status: { enabled: true, attempted: true, used: false, reason: 'invalid_cards', model, triggeredAt },
+        };
+      }
+      return {
+        cards,
+        status: { enabled: true, attempted: true, used: true, reason: 'success', model, triggeredAt },
+      };
     } catch {
-      return null;
+      return {
+        cards: null,
+        status: { enabled: true, attempted: true, used: false, reason: 'request_failed', model, triggeredAt },
+      };
     } finally {
       clearTimeout(timeout);
     }
@@ -1444,7 +1492,7 @@ export class DashboardService {
           gmvGrowth: growth(current.gmv, previous.gmv),
         };
       });
-      const llmCards = await DashboardService.generateDailyOpsCardsWithLlm({
+      const llmResult = await DashboardService.generateDailyOpsCardsWithLlm({
         now: now.toISOString(),
         summary: {
           currentAll,
@@ -1459,7 +1507,7 @@ export class DashboardService {
         zulinSnapshot,
         fallbackCards: cards,
       });
-      const finalCards = llmCards && llmCards.length ? llmCards : cards;
+      const finalCards = llmResult.cards && llmResult.cards.length ? llmResult.cards : cards;
 
       return {
         summary: {
@@ -1484,6 +1532,7 @@ export class DashboardService {
         },
         cards: finalCards.slice(0, DashboardService.DAILY_OPS_MAX_CARDS),
         controllablePlatforms: DashboardService.CONTROLLABLE_PLATFORMS,
+        llm: llmResult.status,
         generatedAt: now.toISOString(),
       };
     },

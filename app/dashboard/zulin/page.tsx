@@ -137,6 +137,14 @@ interface DailyOpsResponse {
   };
   cards?: DailyOpsCard[];
   controllablePlatforms?: string[];
+  llm?: {
+    enabled?: boolean;
+    attempted?: boolean;
+    used?: boolean;
+    reason?: 'disabled' | 'missing_config' | 'request_failed' | 'empty_content' | 'invalid_json' | 'invalid_cards' | 'success';
+    model?: string;
+    triggeredAt?: string;
+  };
 }
 
 const ZulinPage: React.FC = () => {
@@ -201,6 +209,7 @@ const ZulinPage: React.FC = () => {
       shareDiff: share - prevShare,
       cards,
       controllablePlatforms: Array.isArray(dailyOps?.controllablePlatforms) ? dailyOps.controllablePlatforms : [],
+      llm: dailyOps?.llm,
     };
   }, [dailyOps]);
 
@@ -245,6 +254,17 @@ const ZulinPage: React.FC = () => {
     medium: '中优先级',
     low: '低优先级',
   };
+  const llmStatusLabelMap = {
+    disabled: 'LLM未启用',
+    missing_config: 'LLM配置缺失',
+    request_failed: 'LLM请求失败',
+    empty_content: 'LLM空响应',
+    invalid_json: 'LLM响应非JSON',
+    invalid_cards: 'LLM卡片无效',
+    success: 'LLM已触发',
+  } as const;
+  const llmTagColor = dailyOpsData.llm?.used ? 'success' : 'default';
+  const llmStatusLabel = llmStatusLabelMap[dailyOpsData.llm?.reason || 'disabled'];
   const zulinSummary = zulinPanel?.summary || null;
   const zulinTrend = React.useMemo(() => (Array.isArray(zulinPanel?.trend) ? zulinPanel.trend : []), [zulinPanel]);
   const lastUpdatedAt = React.useMemo(() => {
@@ -489,6 +509,8 @@ const ZulinPage: React.FC = () => {
           loading={isDailyOpsLoading}
           extra={
             <Space size={[8, 8]} wrap>
+              <Tag color={llmTagColor}>{llmStatusLabel}</Tag>
+              {dailyOpsData.llm?.model ? <Tag color="geekblue">{dailyOpsData.llm.model}</Tag> : null}
               {dailyOpsData.controllablePlatforms.map((name) => (
                 <Tag key={name} color="processing">
                   {name}
