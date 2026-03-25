@@ -1,8 +1,8 @@
 'use client';
 import React from 'react';
-import { Card, Row, Col, Statistic, Space, theme, Breadcrumb, Tag, Empty, Alert, Tooltip, Button, message, Table } from 'antd';
+import { Card, Row, Col, Statistic, Space, theme, Breadcrumb, Tag, Empty, Alert, Tooltip, Button, message, Table, Typography } from 'antd';
 import useSWR from 'swr';
-import { ArrowUpOutlined, ArrowDownOutlined, CopyOutlined } from '@ant-design/icons';
+import { ArrowUpOutlined, ArrowDownOutlined, CopyOutlined, ReloadOutlined } from '@ant-design/icons';
 import MainLayout from '../../components/MainLayout';
 import ReactECharts from 'echarts-for-react';
 
@@ -20,11 +20,34 @@ const toNumber = (value: unknown) => {
   return Number.isFinite(numeric) ? numeric : 0;
 };
 
+const formatInteger = (value: number) => toNumber(value).toLocaleString('zh-CN');
+const formatCurrency = (value: number) =>
+  `¥${toNumber(value).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
 const swrStableOptions = {
   revalidateOnFocus: false,
   revalidateOnReconnect: false,
   dedupingInterval: 60000,
 };
+
+const statCardBodyStyle: React.CSSProperties = { minHeight: 116, padding: '16px 18px' };
+const adviceCardBodyStyle: React.CSSProperties = { minHeight: 214, display: 'flex', flexDirection: 'column', padding: 16 };
+const sectionCardTitleStyle: React.CSSProperties = { fontWeight: 600, fontSize: 14 };
+const sectionCardStyles: { header: React.CSSProperties; body: React.CSSProperties } = {
+  header: { padding: '12px 16px' },
+  body: { padding: 16 },
+};
+const pageAlertStyle: React.CSSProperties = { marginBottom: 16 };
+const pageEmptyStyle: React.CSSProperties = { margin: '8px 0' };
+const overviewCardLoadingStyles: { header: React.CSSProperties; body: React.CSSProperties } = {
+  header: sectionCardStyles.header,
+  body: { ...sectionCardStyles.body, minHeight: 420 },
+};
+const dailyOpsCardLoadingStyles: { header: React.CSSProperties; body: React.CSSProperties } = {
+  header: sectionCardStyles.header,
+  body: { ...sectionCardStyles.body, minHeight: 360 },
+};
+const headerControlWrapStyle: React.CSSProperties = { display: 'flex', justifyContent: 'flex-end', rowGap: 8 };
 
 interface ZulinProductRow {
   productId: string;
@@ -106,12 +129,12 @@ const ZulinPage: React.FC = () => {
     token: { colorBgContainer, borderRadiusLG },
   } = theme.useToken();
 
-  const { data: zulinPanel, isLoading: isZulinPanelLoading } = useSWR<ZulinPanelResponse>(
+  const { data: zulinPanel, isLoading: isZulinPanelLoading, isValidating: isZulinPanelValidating, mutate: refreshZulinPanel, error: zulinPanelError } = useSWR<ZulinPanelResponse>(
     '/api/dashboard/zulin',
     fetcher,
     swrStableOptions
   );
-  const { data: dailyOps, isLoading: isDailyOpsLoading, error: dailyOpsError } = useSWR<DailyOpsResponse>(
+  const { data: dailyOps, isLoading: isDailyOpsLoading, isValidating: isDailyOpsValidating, mutate: refreshDailyOps, error: dailyOpsError } = useSWR<DailyOpsResponse>(
     '/api/dashboard/daily-ops',
     fetcher,
     swrStableOptions
@@ -167,9 +190,9 @@ const ZulinPage: React.FC = () => {
   }, [dailyOps]);
 
   const renderMetricValue = (unit: '¥' | '单' | '%', value: number) => {
-    if (unit === '¥') return `¥${value.toFixed(2)}`;
+    if (unit === '¥') return formatCurrency(value);
     if (unit === '%') return `${value.toFixed(1)}%`;
-    return `${value.toFixed(0)}单`;
+    return `${formatInteger(value)}单`;
   };
 
   const renderChangeValue = (value: number, suffix: string = '%') => {
@@ -177,7 +200,7 @@ const ZulinPage: React.FC = () => {
       return <span style={{ color: '#8c8c8c' }}>0.0{suffix}</span>;
     }
     const isPositive = value > 0;
-    const color = isPositive ? '#3f8600' : '#cf1322';
+    const color = isPositive ? '#cf1322' : '#3f8600';
     return (
       <span style={{ color }}>
         {isPositive ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
@@ -209,11 +232,34 @@ const ZulinPage: React.FC = () => {
   };
   const zulinSummary = zulinPanel?.summary || null;
   const zulinTrend = React.useMemo(() => (Array.isArray(zulinPanel?.trend) ? zulinPanel.trend : []), [zulinPanel]);
+  const lastUpdatedAt = React.useMemo(() => {
+    if (!zulinPanel && !dailyOps) {
+      return '';
+    }
+    return new Date().toLocaleString('zh-CN', { hour12: false });
+  }, [zulinPanel, dailyOps]);
+  const isRefreshing = isZulinPanelValidating || isDailyOpsValidating;
   const topExposureProducts = Array.isArray(zulinPanel?.topExposureProducts) ? zulinPanel.topExposureProducts : [];
   const lowExposureProducts = Array.isArray(zulinPanel?.lowExposureProducts) ? zulinPanel.lowExposureProducts : [];
+  const handleRefresh = async () => {
+    await Promise.all([refreshZulinPanel(), refreshDailyOps()]);
+  };
   const zulinChartOption = React.useMemo(() => {
     return {
-      tooltip: { trigger: 'axis' },
+      tooltip: {
+        trigger: 'axis',
+        formatter: (params: Array<{ marker: string; seriesName: string; value: number | string; axisValueLabel?: string }>) => {
+          const date = params[0]?.axisValueLabel || '';
+          const lines = params.map((item) => {
+            const numeric = toNumber(item.value);
+            const renderedValue = item.seriesName === '交易金额'
+              ? formatCurrency(numeric)
+              : formatInteger(numeric);
+            return `${item.marker}${item.seriesName}：${renderedValue}`;
+          });
+          return [date, ...lines].join('<br/>');
+        },
+      },
       legend: { data: ['曝光次数', '商品访问次数', '交易金额'] },
       grid: { left: '3%', right: '4%', bottom: '18%', containLabel: true },
       xAxis: {
@@ -226,20 +272,22 @@ const ZulinPage: React.FC = () => {
         },
       },
       yAxis: [
-        { type: 'value', name: '曝光/访问' },
-        { type: 'value', name: '金额', axisLabel: { formatter: (value: number) => `¥${value}` } },
+        { type: 'value', name: '曝光/访问', axisLabel: { formatter: (value: number) => formatInteger(value) } },
+        { type: 'value', name: '金额', axisLabel: { formatter: (value: number) => `¥${value.toLocaleString('zh-CN')}` } },
       ],
       series: [
         {
           name: '曝光次数',
           type: 'line',
           smooth: true,
+          color: '#1677ff',
           data: zulinTrend.map((item) => toNumber(item.exposure)),
         },
         {
           name: '商品访问次数',
           type: 'line',
           smooth: true,
+          color: '#722ed1',
           data: zulinTrend.map((item) => toNumber(item.visits)),
         },
         {
@@ -247,6 +295,7 @@ const ZulinPage: React.FC = () => {
           type: 'line',
           yAxisIndex: 1,
           smooth: true,
+          color: '#fa8c16',
           data: zulinTrend.map((item) => toNumber(item.revenue)),
         },
       ],
@@ -258,31 +307,46 @@ const ZulinPage: React.FC = () => {
       title: '排名',
       key: 'rank',
       width: 68,
-      render: (_: unknown, __: ZulinProductRow, index: number) => index + 1,
+      render: (_: unknown, __: ZulinProductRow, index: number) => {
+        if (index < 3) {
+          return <Tag color="gold">{index + 1}</Tag>;
+        }
+        return index + 1;
+      },
     },
     {
       title: '商品',
       dataIndex: 'title',
       key: 'title',
-      ellipsis: true,
+      ellipsis: { showTitle: false },
+      render: (value: string) => (
+        <Tooltip title={value}>
+          <span>{value}</span>
+        </Tooltip>
+      ),
     },
     {
       title: '曝光',
       dataIndex: 'exposure',
       key: 'exposure',
       width: 90,
+      align: 'right' as const,
+      render: (val: number) => formatInteger(val),
     },
     {
       title: '访问',
       dataIndex: 'visits',
       key: 'visits',
       width: 90,
+      align: 'right' as const,
+      render: (val: number) => formatInteger(val),
     },
     {
       title: '转化率',
       dataIndex: 'conversionRate',
       key: 'conversionRate',
       width: 100,
+      align: 'right' as const,
       render: (val: number) => `${toNumber(val).toFixed(2)}%`,
     },
     {
@@ -290,39 +354,54 @@ const ZulinPage: React.FC = () => {
       dataIndex: 'revenue',
       key: 'revenue',
       width: 120,
-      render: (val: number) => `¥${toNumber(val).toFixed(2)}`,
+      align: 'right' as const,
+      render: (val: number) => formatCurrency(val),
     },
   ];
 
   return (
     <MainLayout>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Breadcrumb style={{ margin: '16px 0' }} items={[{ title: '数据看板' }, { title: '芝麻租赁' }]} />
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <Space orientation="vertical" size={2} style={{ margin: '16px 0' }}>
+          <Breadcrumb items={[{ title: '数据看板' }, { title: '芝麻租赁' }]} />
+          <Typography.Text type="secondary">支付宝小程序经营数据与运营建议追踪</Typography.Text>
+        </Space>
+        <Space wrap size={[8, 8]} style={headerControlWrapStyle}>
+          {lastUpdatedAt ? <Tag color="success">上次刷新：{lastUpdatedAt}</Tag> : null}
+          <Button size="small" icon={<ReloadOutlined />} loading={isRefreshing} onClick={handleRefresh}>
+            刷新
+          </Button>
+        </Space>
       </div>
 
       <div style={{ padding: 24, minHeight: 360, background: colorBgContainer, borderRadius: borderRadiusLG }}>
+        {zulinPanelError ? (
+          <Alert style={pageAlertStyle} type="error" showIcon message="芝麻租赁看板加载失败" description="请稍后重试或检查数据同步状态" />
+        ) : null}
         <Card
-          title="支付宝小程序运营概览（芝麻租赁）"
+          size="small"
+          title={<Typography.Text style={sectionCardTitleStyle}>支付宝小程序运营概览（芝麻租赁）</Typography.Text>}
           loading={isZulinPanelLoading}
           extra={
-            <Space size={8}>
+            <Space size={[8, 8]} wrap>
               {zulinSummary?.date ? <Tag color="processing">最新日期：{zulinSummary.date}</Tag> : null}
               {zulinPanel?.sourceFile ? <Tag color="default">来源：{zulinPanel.sourceFile}</Tag> : null}
             </Space>
           }
           style={{ marginBottom: 24 }}
+          styles={isZulinPanelLoading ? overviewCardLoadingStyles : sectionCardStyles}
         >
           {zulinSummary ? (
             <>
               <Row gutter={16}>
                 <Col xs={24} md={6} style={{ marginBottom: 12 }}>
-                  <Statistic title="曝光次数" value={toNumber(zulinSummary.exposure)} />
+                  <Statistic title="曝光次数" value={toNumber(zulinSummary.exposure)} formatter={(value) => formatInteger(Number(value))} />
                 </Col>
                 <Col xs={24} md={6} style={{ marginBottom: 12 }}>
-                  <Statistic title="商品访问次数" value={toNumber(zulinSummary.visits)} />
+                  <Statistic title="商品访问次数" value={toNumber(zulinSummary.visits)} formatter={(value) => formatInteger(Number(value))} />
                 </Col>
                 <Col xs={24} md={6} style={{ marginBottom: 12 }}>
-                  <Statistic title="交易金额（元）" value={toNumber(zulinSummary.revenue)} precision={2} prefix="¥" />
+                  <Statistic title="交易金额（元）" value={toNumber(zulinSummary.revenue)} formatter={(value) => formatCurrency(Number(value))} />
                 </Col>
                 <Col xs={24} md={6} style={{ marginBottom: 12 }}>
                   <Statistic title="访问转化率" value={toNumber(String(zulinSummary.conversionRate).replace('%', ''))} precision={2} suffix="%" />
@@ -331,32 +410,49 @@ const ZulinPage: React.FC = () => {
               {zulinTrend.length > 0 ? (
                 <ReactECharts option={zulinChartOption} style={{ height: 320, marginTop: 8, marginBottom: 8 }} />
               ) : (
-                <Empty description="暂无芝麻租赁趋势数据" />
+                <Empty description="暂无芝麻租赁趋势数据" style={pageEmptyStyle} />
               )}
             </>
           ) : (
-            <Empty description="暂无芝麻租赁分析结果，请先执行日分析脚本" />
+            <Empty description="暂无芝麻租赁分析结果，请先执行日分析脚本" style={pageEmptyStyle} />
           )}
         </Card>
 
         <Row gutter={16} style={{ marginBottom: 24 }}>
           <Col xs={24} lg={12}>
-            <Card title="当日曝光 Top10 商品">
-              <Table columns={productColumns} dataSource={topExposureProducts} rowKey="productId" pagination={false} size="small" />
+            <Card size="small" title={<Typography.Text style={sectionCardTitleStyle}>当日曝光 Top10 商品</Typography.Text>} styles={sectionCardStyles}>
+              <Table
+                columns={productColumns}
+                dataSource={topExposureProducts}
+                rowKey="productId"
+                pagination={false}
+                size="small"
+                locale={{ emptyText: '暂无 Top10 曝光数据' }}
+                scroll={{ x: 560 }}
+              />
             </Card>
           </Col>
           <Col xs={24} lg={12}>
-            <Card title="当日曝光后15商品">
-              <Table columns={productColumns} dataSource={lowExposureProducts} rowKey="productId" pagination={false} size="small" />
+            <Card size="small" title={<Typography.Text style={sectionCardTitleStyle}>当日曝光后15商品</Typography.Text>} styles={sectionCardStyles}>
+              <Table
+                columns={productColumns}
+                dataSource={lowExposureProducts}
+                rowKey="productId"
+                pagination={false}
+                size="small"
+                locale={{ emptyText: '暂无后15曝光数据' }}
+                scroll={{ x: 560 }}
+              />
             </Card>
           </Col>
         </Row>
 
         <Card
-          title="每日运营卡片"
+          size="small"
+          title={<Typography.Text style={sectionCardTitleStyle}>每日运营卡片</Typography.Text>}
           loading={isDailyOpsLoading}
           extra={
-            <Space size={8}>
+            <Space size={[8, 8]} wrap>
               {dailyOpsData.controllablePlatforms.map((name) => (
                 <Tag key={name} color="processing">
                   {name}
@@ -364,78 +460,90 @@ const ZulinPage: React.FC = () => {
               ))}
             </Space>
           }
+          styles={isDailyOpsLoading ? dailyOpsCardLoadingStyles : sectionCardStyles}
         >
           {dailyOpsError ? (
-            <Alert type="error" showIcon message="运营卡片加载失败" description="请稍后重试或检查数据同步状态" />
+            <Alert type="error" showIcon message="运营卡片加载失败" description="请稍后重试或检查数据同步状态" style={pageAlertStyle} />
           ) : (
             <>
-              <Row gutter={16}>
-                <Col xs={24} md={8}>
-                  <Statistic
-                    title="可控渠道 GMV（近7天）"
-                    value={dailyOpsData.controllable.gmv}
-                    precision={2}
-                    prefix="¥"
-                    suffix={<span style={{ marginLeft: 8, fontSize: 12 }}>{renderChangeValue(dailyOpsData.controllable.gmvChange)}</span>}
-                  />
+              <Row gutter={[16, 16]}>
+                <Col xs={24} md={8} style={{ display: 'flex' }}>
+                  <Card size="small" style={{ width: '100%' }} styles={{ body: statCardBodyStyle }}>
+                    <Statistic
+                      title="可控渠道 GMV（近7天）"
+                      value={dailyOpsData.controllable.gmv}
+                      formatter={(value) => formatCurrency(Number(value))}
+                      suffix={<span style={{ marginLeft: 8, fontSize: 12 }}>{renderChangeValue(dailyOpsData.controllable.gmvChange)}</span>}
+                    />
+                  </Card>
                 </Col>
-                <Col xs={24} md={8}>
-                  <Statistic
-                    title="可控渠道订单（近7天）"
-                    value={dailyOpsData.controllable.orders}
-                    suffix={<span style={{ marginLeft: 8, fontSize: 12 }}>{renderChangeValue(dailyOpsData.controllable.orderChange)}</span>}
-                  />
+                <Col xs={24} md={8} style={{ display: 'flex' }}>
+                  <Card size="small" style={{ width: '100%' }} styles={{ body: statCardBodyStyle }}>
+                    <Statistic
+                      title="可控渠道订单（近7天）"
+                      value={dailyOpsData.controllable.orders}
+                      formatter={(value) => formatInteger(Number(value))}
+                      suffix={<span style={{ marginLeft: 8, fontSize: 12 }}>{renderChangeValue(dailyOpsData.controllable.orderChange)}</span>}
+                    />
+                  </Card>
                 </Col>
-                <Col xs={24} md={8}>
-                  <Statistic
-                    title="可控渠道占比（GMV）"
-                    value={dailyOpsData.share}
-                    precision={1}
-                    suffix={
-                      <span style={{ marginLeft: 8, fontSize: 12 }}>
-                        {renderChangeValue(dailyOpsData.shareDiff, 'pct')}
-                      </span>
-                    }
-                  />
+                <Col xs={24} md={8} style={{ display: 'flex' }}>
+                  <Card size="small" style={{ width: '100%' }} styles={{ body: statCardBodyStyle }}>
+                    <Statistic
+                      title="可控渠道占比（GMV）"
+                      value={dailyOpsData.share}
+                      precision={1}
+                      suffix={
+                        <span style={{ marginLeft: 8, fontSize: 12 }}>
+                          {renderChangeValue(dailyOpsData.shareDiff, 'pp')}
+                        </span>
+                      }
+                    />
+                  </Card>
                 </Col>
               </Row>
-              <Row gutter={16} style={{ marginTop: 12 }}>
-                <Col xs={24} md={8}>
-                  <Statistic
-                    title="全渠道 GMV（近7天）"
-                    value={dailyOpsData.all.gmv}
-                    precision={2}
-                    prefix="¥"
-                    suffix={<span style={{ marginLeft: 8, fontSize: 12 }}>{renderChangeValue(dailyOpsData.all.gmvChange)}</span>}
-                  />
+              <Row gutter={[16, 16]} style={{ marginTop: 12 }}>
+                <Col xs={24} md={8} style={{ display: 'flex' }}>
+                  <Card size="small" style={{ width: '100%' }} styles={{ body: statCardBodyStyle }}>
+                    <Statistic
+                      title="全渠道 GMV（近7天）"
+                      value={dailyOpsData.all.gmv}
+                      formatter={(value) => formatCurrency(Number(value))}
+                      suffix={<span style={{ marginLeft: 8, fontSize: 12 }}>{renderChangeValue(dailyOpsData.all.gmvChange)}</span>}
+                    />
+                  </Card>
                 </Col>
-                <Col xs={24} md={8}>
-                  <Statistic
-                    title="全渠道订单（近7天）"
-                    value={dailyOpsData.all.orders}
-                    suffix={<span style={{ marginLeft: 8, fontSize: 12 }}>{renderChangeValue(dailyOpsData.all.orderChange)}</span>}
-                  />
+                <Col xs={24} md={8} style={{ display: 'flex' }}>
+                  <Card size="small" style={{ width: '100%' }} styles={{ body: statCardBodyStyle }}>
+                    <Statistic
+                      title="全渠道订单（近7天）"
+                      value={dailyOpsData.all.orders}
+                      formatter={(value) => formatInteger(Number(value))}
+                      suffix={<span style={{ marginLeft: 8, fontSize: 12 }}>{renderChangeValue(dailyOpsData.all.orderChange)}</span>}
+                    />
+                  </Card>
                 </Col>
-                <Col xs={24} md={8}>
-                  <Statistic
-                    title="可控渠道客单价"
-                    value={dailyOpsData.controllable.aov}
-                    precision={2}
-                    prefix="¥"
-                    suffix={<span style={{ marginLeft: 8, fontSize: 12 }}>{renderChangeValue(dailyOpsData.controllable.aovChange)}</span>}
-                  />
+                <Col xs={24} md={8} style={{ display: 'flex' }}>
+                  <Card size="small" style={{ width: '100%' }} styles={{ body: statCardBodyStyle }}>
+                    <Statistic
+                      title="可控渠道客单价"
+                      value={dailyOpsData.controllable.aov}
+                      formatter={(value) => formatCurrency(Number(value))}
+                      suffix={<span style={{ marginLeft: 8, fontSize: 12 }}>{renderChangeValue(dailyOpsData.controllable.aovChange)}</span>}
+                    />
+                  </Card>
                 </Col>
               </Row>
 
               <div style={{ marginTop: 16 }}>
                 {dailyOpsData.cards.length === 0 ? (
-                  <Empty description="暂无运营建议" />
+                  <Empty description="暂无运营建议" style={pageEmptyStyle} />
                 ) : (
                   <Row gutter={[16, 16]}>
                     {dailyOpsData.cards.map((card) => (
                       <Col xs={24} md={12} lg={8} key={card.id} style={{ display: 'flex' }}>
-                        <Card size="small" title={card.title} style={{ width: '100%' }} styles={{ body: { minHeight: 190, display: 'flex', flexDirection: 'column' } }}>
-                          <Space size={8} style={{ marginBottom: 10 }}>
+                        <Card size="small" title={<Typography.Text style={sectionCardTitleStyle}>{card.title}</Typography.Text>} style={{ width: '100%' }} styles={{ body: adviceCardBodyStyle }}>
+                          <Space size={8} wrap style={{ marginBottom: 10 }}>
                             <Tag color={card.tag === '可执行' ? 'success' : 'default'}>{card.tag}</Tag>
                             <Tag color={levelColor[card.level]}>{levelLabel[card.level]}</Tag>
                             <Tag color={card.scope === 'controllable' ? 'processing' : 'purple'}>
@@ -451,7 +559,7 @@ const ZulinPage: React.FC = () => {
                           )}
                           <div style={{ color: '#595959', marginBottom: 10 }}>{card.action}</div>
                           {card.linkName && card.linkId ? (
-                            <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 10 }}>
+                            <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 10, lineHeight: 1.8 }}>
                               链接：
                               {card.linkFullName ? (
                                 <Tooltip title={card.linkFullName}>
@@ -482,7 +590,7 @@ const ZulinPage: React.FC = () => {
                               </Tooltip>
                             </div>
                           ) : null}
-                          <div style={{ fontSize: 12, color: '#8c8c8c', marginTop: 'auto' }}>
+                          <div style={{ fontSize: 12, color: '#8c8c8c', marginTop: 'auto', borderTop: '1px solid #f0f0f0', paddingTop: 10 }}>
                             当前: {renderMetricValue(card.metric.unit, toNumber(card.metric.current))} ｜ 上期: {renderMetricValue(card.metric.unit, toNumber(card.metric.previous))}
                             {' ｜ 变化: '}
                             {renderChangeValue(toNumber(card.metric.changeRate))}

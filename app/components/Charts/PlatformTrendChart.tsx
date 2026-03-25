@@ -1,10 +1,12 @@
 import React from 'react';
 import ReactECharts from 'echarts-for-react';
+import { Empty, Spin } from 'antd';
 import type { PlatformTrendViewData } from './types';
 
 interface PlatformTrendChartProps {
   data: PlatformTrendViewData;
   loading: boolean;
+  metric: 'gmv' | 'order';
 }
 
 interface TrendTooltipParam {
@@ -15,13 +17,30 @@ interface TrendTooltipParam {
   color: string;
 }
 
-const PlatformTrendChart: React.FC<PlatformTrendChartProps> = ({ data, loading }) => {
+const chartEmptyStyle: React.CSSProperties = { margin: '8px 0' };
+const chartFrameStyle: React.CSSProperties = { height: 400, display: 'flex', alignItems: 'center', justifyContent: 'center' };
+
+const PlatformTrendChart: React.FC<PlatformTrendChartProps> = ({ data, loading, metric }) => {
+  const formatValue = (value: number) => {
+    if (metric === 'gmv') {
+      return `¥${value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    }
+    return value.toLocaleString('zh-CN');
+  };
   if (loading) {
-    return <div style={{ height: 400, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Loading...</div>;
+    return (
+      <div style={chartFrameStyle}>
+        <Spin size="large" />
+      </div>
+    );
   }
 
   if (!data || !data.data || data.data.length === 0) {
-    return <div style={{ height: 400, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>暂无数据</div>;
+    return (
+      <div style={chartFrameStyle}>
+        <Empty description="暂无趋势数据" style={chartEmptyStyle} />
+      </div>
+    );
   }
 
   const { data: chartData, platforms } = data;
@@ -49,22 +68,17 @@ const PlatformTrendChart: React.FC<PlatformTrendChartProps> = ({ data, loading }
                 if (prevValue) {
                     const growth = ((value - prevValue) / prevValue) * 100;
                     const isPositive = growth >= 0;
-                    const growthColor = isPositive ? '#3f8600' : '#cf1322';
+                    const growthColor = isPositive ? '#cf1322' : '#3f8600';
                     const icon = isPositive ? '▲' : '▼';
                     // Only show growth if absolute value is >= 0.1% to avoid noise
                     if (Math.abs(growth) >= 0.1) {
                         growthStr = `<span style="color: ${growthColor}; margin-left: 8px; font-size: 12px;">${icon} ${Math.abs(growth).toFixed(1)}%</span>`;
                     }
                 } else if (value > 0) {
-                     // From 0 to something
-                     growthStr = `<span style="color: #3f8600; margin-left: 8px; font-size: 12px;">New</span>`;
+                     growthStr = `<span style="color: #cf1322; margin-left: 8px; font-size: 12px;">New</span>`;
                 }
             }
-            
-            // Format value (add commas if needed, or currency)
-            // But we don't know if it's GMV or Count here easily without props.
-            // Assuming raw number for now.
-            
+
             html += `
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
                     <span style="margin-right: 16px;">
@@ -72,7 +86,7 @@ const PlatformTrendChart: React.FC<PlatformTrendChartProps> = ({ data, loading }
                         ${platformName}
                     </span>
                     <span>
-                        <span style="font-weight: bold;">${value}</span>
+                        <span style="font-weight: bold;">${formatValue(value)}</span>
                         ${growthStr}
                     </span>
                 </div>
@@ -98,6 +112,9 @@ const PlatformTrendChart: React.FC<PlatformTrendChartProps> = ({ data, loading }
     },
     yAxis: {
       type: 'value',
+      axisLabel: {
+        formatter: (value: number) => (metric === 'gmv' ? `¥${value}` : `${value}`),
+      },
     },
     series: platforms.map((platform) => ({
       name: platform,
