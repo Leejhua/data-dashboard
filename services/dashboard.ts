@@ -1072,6 +1072,69 @@ export class DashboardService {
     return null;
   }
 
+  static getDailyOpsLlmRuntimeStatus() {
+    const enabledRaw = String(process.env.DAILY_OPS_LLM_ENABLED || '');
+    const apiKey = String(process.env.DAILY_OPS_LLM_API_KEY || '').trim();
+    const apiUrl = DashboardService.getDailyOpsLlmApiUrl();
+    const model = DashboardService.getDailyOpsLlmModel();
+    return {
+      enabled: DashboardService.isDailyOpsLlmEnabled(),
+      enabledRaw,
+      hasApiKey: Boolean(apiKey),
+      apiKeyPrefix: apiKey ? apiKey.slice(0, 6) : '',
+      apiKeyLength: apiKey.length,
+      apiUrl,
+      model,
+      nodeEnv: process.env.NODE_ENV || '',
+      checkedAt: new Date().toISOString(),
+    };
+  }
+
+  static async probeDailyOpsLlmConnection() {
+    const runtime = DashboardService.getDailyOpsLlmRuntimeStatus();
+    if (!runtime.enabled) {
+      return { ok: false, reason: 'disabled', ...runtime };
+    }
+    if (!runtime.hasApiKey || !runtime.apiUrl || !runtime.model) {
+      return { ok: false, reason: 'missing_config', ...runtime };
+    }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+      const response = await fetch(runtime.apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${String(process.env.DAILY_OPS_LLM_API_KEY || '').trim()}`,
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model: runtime.model,
+          temperature: 0,
+          response_format: { type: 'json_object' },
+          messages: [
+            { role: 'system', content: '你是一个 API 连通性检查助手。' },
+            { role: 'user', content: '返回 JSON：{"ok":true}' },
+          ],
+        }),
+      });
+      const body = await response.text();
+      if (!response.ok) {
+        return { ok: false, reason: 'request_failed', statusCode: response.status, bodyPreview: body.slice(0, 300), ...runtime };
+      }
+      return { ok: true, reason: 'success', statusCode: response.status, bodyPreview: body.slice(0, 300), ...runtime };
+    } catch (error) {
+      return {
+        ok: false,
+        reason: 'request_failed',
+        error: error instanceof Error ? error.message : 'unknown error',
+        ...runtime,
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   private static sanitizeDailyOpsCards(raw: unknown, fallbackCards: DailyOpsCard[]) {
     if (!Array.isArray(raw)) return null;
     const fallbackMetricById = new Map(fallbackCards.map((item) => [item.id, item.metric]));
@@ -1145,6 +1208,7 @@ export class DashboardService {
   }): Promise<{ cards: DailyOpsCard[] | null; status: DailyOpsLlmStatus }> {
     const triggeredAt = new Date().toISOString();
     if (!DashboardService.isDailyOpsLlmEnabled()) {
+      console.info('[daily-ops-llm] skip: disabled');
       return {
         cards: null,
         status: { enabled: false, attempted: false, used: false, reason: 'disabled', model: '', triggeredAt },
@@ -1154,11 +1218,13 @@ export class DashboardService {
     const apiKey = String(process.env.DAILY_OPS_LLM_API_KEY || '').trim();
     const model = DashboardService.getDailyOpsLlmModel();
     if (!apiUrl || !apiKey || !model) {
+      console.info('[daily-ops-llm] skip: missing_config');
       return {
         cards: null,
         status: { enabled: true, attempted: false, used: false, reason: 'missing_config', model: model || '', triggeredAt },
       };
     }
+    console.info('[daily-ops-llm] attempt', { model, apiUrl });
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 12000);
     try {
@@ -1187,6 +1253,7 @@ export class DashboardService {
         }),
       });
       if (!response.ok) {
+        console.info('[daily-ops-llm] failed: request_failed', { status: response.status });
         return {
           cards: null,
           status: { enabled: true, attempted: true, used: false, reason: 'request_failed', model, triggeredAt },
@@ -1197,6 +1264,7 @@ export class DashboardService {
         | null;
       const content = String(result?.choices?.[0]?.message?.content || '').trim();
       if (!content) {
+        console.info('[daily-ops-llm] failed: empty_content');
         return {
           cards: null,
           status: { enabled: true, attempted: true, used: false, reason: 'empty_content', model, triggeredAt },
@@ -1204,6 +1272,7 @@ export class DashboardService {
       }
       const parsed = DashboardService.parseLlmJsonObject(content) as { cards?: unknown } | null;
       if (!parsed) {
+        console.info('[daily-ops-llm] failed: invalid_json');
         return {
           cards: null,
           status: { enabled: true, attempted: true, used: false, reason: 'invalid_json', model, triggeredAt },
@@ -1211,16 +1280,19 @@ export class DashboardService {
       }
       const cards = DashboardService.sanitizeDailyOpsCards(parsed.cards, input.fallbackCards);
       if (!cards || !cards.length) {
+        console.info('[daily-ops-llm] failed: invalid_cards');
         return {
           cards: null,
           status: { enabled: true, attempted: true, used: false, reason: 'invalid_cards', model, triggeredAt },
         };
       }
+      console.info('[daily-ops-llm] success', { cards: cards.length, model });
       return {
         cards,
         status: { enabled: true, attempted: true, used: true, reason: 'success', model, triggeredAt },
       };
     } catch {
+      console.info('[daily-ops-llm] failed: request_failed');
       return {
         cards: null,
         status: { enabled: true, attempted: true, used: false, reason: 'request_failed', model, triggeredAt },
