@@ -427,6 +427,7 @@ const ZulinPage: React.FC = () => {
           <Col xs={24} lg={12}>
             <Card size="small" title={<Typography.Text style={sectionCardTitleStyle}>最新统计日曝光 Top10 商品</Typography.Text>} styles={productListCardStyles}>
               <Table
+                className="zulin-table-hidden-scrollbar"
                 columns={productColumns}
                 dataSource={topExposureProducts}
                 rowKey="productId"
@@ -445,6 +446,7 @@ const ZulinPage: React.FC = () => {
               styles={productListCardStyles}
             >
               <Table
+                className="zulin-table-hidden-scrollbar"
                 columns={productColumns}
                 dataSource={lowExposureProducts}
                 rowKey="productId"
@@ -615,6 +617,16 @@ const ZulinPage: React.FC = () => {
           )}
         </Card>
       </div>
+      <style jsx global>{`
+        .zulin-table-hidden-scrollbar .ant-table-body {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+        }
+        .zulin-table-hidden-scrollbar .ant-table-body::-webkit-scrollbar {
+          width: 0;
+          height: 0;
+        }
+      `}</style>
     </MainLayout>
   );
 };
