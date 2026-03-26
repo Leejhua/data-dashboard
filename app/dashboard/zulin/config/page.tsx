@@ -1,7 +1,11 @@
 'use client';
 import React from 'react';
-import { Alert, Breadcrumb, Button, Card, Form, InputNumber, Space, Tag, Typography, message, theme } from 'antd';
+import { Alert, Breadcrumb, Button, Card, DatePicker, Form, Input, InputNumber, Space, Tag, Typography, Upload, message, theme } from 'antd';
+import { InboxOutlined } from '@ant-design/icons';
 import useSWR from 'swr';
+import dayjs from 'dayjs';
+import type { Dayjs } from 'dayjs';
+import type { UploadProps } from 'antd';
 import MainLayout from '../../../components/MainLayout';
 
 interface ZulinAlertConfig {
@@ -15,6 +19,26 @@ interface ZulinAlertConfig {
   maxWarningItems: number;
   updatedAt: string;
 }
+
+type CsvRow = string[];
+type ParsedCsv = {
+  headers: string[];
+  rows: CsvRow[];
+};
+
+type IngestItem = {
+  id: string;
+  title: string;
+  exposure?: string | number;
+  visits?: string | number;
+  amount?: string | number;
+  price?: string;
+  managed_days?: string | number;
+  scope?: string;
+  start_date?: string;
+  end_date?: string;
+  optimization?: string;
+};
 
 const fetcher = async (url: string) => {
   const res = await fetch(url);
@@ -31,6 +55,16 @@ const ZulinAlertConfigPage: React.FC = () => {
   } = theme.useToken();
   const [form] = Form.useForm<ZulinAlertConfig>();
   const [saving, setSaving] = React.useState(false);
+  const [importing, setImporting] = React.useState(false);
+  const [importDate, setImportDate] = React.useState<Dayjs>(dayjs());
+  const [csvText, setCsvText] = React.useState('');
+  const [importResult, setImportResult] = React.useState<{
+    batchId: string;
+    payloadCount: number;
+    insertedCount: number;
+    updatedCount: number;
+    failedCount: number;
+  } | null>(null);
   const { data, error, isLoading, mutate } = useSWR<ZulinAlertConfig>('/api/dashboard/zulin/alert-config', fetcher);
 
   React.useEffect(() => {
@@ -75,6 +109,147 @@ const ZulinAlertConfigPage: React.FC = () => {
   const weightVisitRate = Number(Form.useWatch('weightVisitRate', form) || 0);
   const weightManagedDays = Number(Form.useWatch('weightManagedDays', form) || 0);
   const weightSum = weightExposure + weightVisitRate + weightManagedDays;
+
+  const normalizeHeader = (value: string) => {
+    return value.replace(/\uFEFF/g, '').replace(/\s+/g, '').toLowerCase();
+  };
+
+  const parseCsv = (text: string): ParsedCsv => {
+    const rows: CsvRow[] = [];
+    let current = '';
+    let row: string[] = [];
+    let inQuotes = false;
+    for (let i = 0; i < text.length; i += 1) {
+      const char = text[i];
+      const next = text[i + 1];
+      if (char === '"') {
+        if (inQuotes && next === '"') {
+          current += '"';
+          i += 1;
+        } else {
+          inQuotes = !inQuotes;
+        }
+        continue;
+      }
+      if (char === ',' && !inQuotes) {
+        row.push(current);
+        current = '';
+        continue;
+      }
+      if ((char === '\n' || char === '\r') && !inQuotes) {
+        if (char === '\r' && next === '\n') {
+          i += 1;
+        }
+        row.push(current);
+        current = '';
+        if (row.some((cell) => String(cell || '').trim() !== '')) {
+          rows.push(row.map((cell) => String(cell || '').trim()));
+        }
+        row = [];
+        continue;
+      }
+      current += char;
+    }
+    row.push(current);
+    if (row.some((cell) => String(cell || '').trim() !== '')) {
+      rows.push(row.map((cell) => String(cell || '').trim()));
+    }
+    if (!rows.length) {
+      return { headers: [], rows: [] };
+    }
+    const headers = rows[0].map((cell) => normalizeHeader(cell));
+    return { headers, rows: rows.slice(1) };
+  };
+
+  const pickValue = (headers: string[], row: CsvRow, aliases: string[]) => {
+    for (const alias of aliases) {
+      const idx = headers.indexOf(normalizeHeader(alias));
+      if (idx >= 0 && idx < row.length) {
+        return String(row[idx] || '').trim();
+      }
+    }
+    return '';
+  };
+
+  const buildIngestItems = (parsed: ParsedCsv) => {
+    const items: IngestItem[] = [];
+    for (const row of parsed.rows) {
+      const id = pickValue(parsed.headers, row, ['商品id', '商品ID', 'product_id', 'id']);
+      const title = pickValue(parsed.headers, row, ['商品标题', '标题', 'title']);
+      if (!id || !title) {
+        continue;
+      }
+      items.push({
+        id,
+        title,
+        exposure: pickValue(parsed.headers, row, ['曝光次数', '曝光', 'exposure']),
+        visits: pickValue(parsed.headers, row, ['商品访问次数', '访问次数', '访问', 'visits']),
+        amount: pickValue(parsed.headers, row, ['交易金额(元)', '交易金额', 'amount']),
+        price: pickValue(parsed.headers, row, ['商品租金', '租金', 'price']),
+        managed_days: pickValue(parsed.headers, row, ['托管天数', 'managed_days']),
+        scope: pickValue(parsed.headers, row, ['托管范围', 'scope']),
+        start_date: pickValue(parsed.headers, row, ['托管起始日期', 'start_date']),
+        end_date: pickValue(parsed.headers, row, ['托管到期日期', 'end_date']),
+        optimization: pickValue(parsed.headers, row, ['优化中', '优化状态', 'optimization']),
+      });
+    }
+    return items;
+  };
+
+  const importCsv = async () => {
+    const raw = csvText.trim();
+    if (!raw) {
+      message.warning('请先粘贴CSV内容或上传CSV文件');
+      return;
+    }
+    const parsed = parseCsv(raw);
+    const items = buildIngestItems(parsed);
+    if (!items.length) {
+      message.error('未识别到有效数据，请确认包含“商品ID/商品标题”等列');
+      return;
+    }
+    try {
+      setImporting(true);
+      setImportResult(null);
+      const response = await fetch('/api/dashboard/zulin/ingest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          date: importDate.format('YYYY-MM-DD'),
+          source: 'manual_csv',
+          items,
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error((result as { error?: string })?.error || '导入失败');
+      }
+      setImportResult({
+        batchId: String((result as { batchId?: string }).batchId || ''),
+        payloadCount: Number((result as { payloadCount?: number }).payloadCount || 0),
+        insertedCount: Number((result as { insertedCount?: number }).insertedCount || 0),
+        updatedCount: Number((result as { updatedCount?: number }).updatedCount || 0),
+        failedCount: Number((result as { failedCount?: number }).failedCount || 0),
+      });
+      message.success(`导入完成，共 ${items.length} 条`);
+    } catch (errorInfo) {
+      message.error(errorInfo instanceof Error ? errorInfo.message : '导入失败');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const uploadProps: UploadProps = {
+    accept: '.csv,text/csv',
+    maxCount: 1,
+    showUploadList: false,
+    beforeUpload: async (file) => {
+      const text = await file.text();
+      setCsvText(text);
+      message.success(`已读取文件：${file.name}`);
+      return false;
+    },
+  };
 
   return (
     <MainLayout>
@@ -135,6 +310,46 @@ const ZulinAlertConfigPage: React.FC = () => {
               </Button>
             </div>
           </Form>
+        </Card>
+        <Card
+          size="small"
+          title={<Typography.Text strong>芝麻租赁手动导入（CSV）</Typography.Text>}
+          style={{ marginTop: 16 }}
+          extra={
+            <Space>
+              <DatePicker value={importDate} onChange={(value) => value && setImportDate(value)} allowClear={false} />
+              <Upload.Dragger {...uploadProps} style={{ width: 240, padding: 4 }}>
+                <Space>
+                  <InboxOutlined />
+                  <Typography.Text>上传CSV</Typography.Text>
+                </Space>
+              </Upload.Dragger>
+            </Space>
+          }
+        >
+          <Space direction="vertical" size={12} style={{ width: '100%' }}>
+            <Typography.Text type="secondary">支持直接粘贴芝麻租赁导出的CSV内容，按选择日期写入当日数据。</Typography.Text>
+            <Input.TextArea
+              value={csvText}
+              onChange={(e) => setCsvText(e.target.value)}
+              rows={10}
+              placeholder="请粘贴CSV全文（含表头）"
+            />
+            <Space>
+              <Button type="primary" loading={importing} onClick={importCsv}>
+                解析并导入
+              </Button>
+              <Button onClick={() => setCsvText('')}>清空</Button>
+            </Space>
+            {importResult ? (
+              <Alert
+                type="success"
+                showIcon
+                message="导入完成"
+                description={`批次 ${importResult.batchId}，总计 ${importResult.payloadCount} 条，新增 ${importResult.insertedCount} 条，更新 ${importResult.updatedCount} 条，失败 ${importResult.failedCount} 条`}
+              />
+            ) : null}
+          </Space>
         </Card>
       </div>
     </MainLayout>
