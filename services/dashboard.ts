@@ -607,7 +607,7 @@ export class DashboardService {
             const day = d.getDay();
             const diff = d.getDate() - day + (day === 0 ? -6 : 1); // adjust when day is sunday
             const monday = new Date(d.setDate(diff));
-            const key = monday.toISOString().split('T')[0];
+            const key = DashboardService.dateKey(monday);
             weeks.push(key);
             weeklyData[key] = { gmv: 0, orderCount: 0 };
         }
@@ -617,7 +617,7 @@ export class DashboardService {
             const day = date.getDay();
             const diff = date.getDate() - day + (day === 0 ? -6 : 1);
             const monday = new Date(date.setDate(diff));
-            const key = monday.toISOString().split('T')[0];
+            const key = DashboardService.dateKey(monday);
             
             // Only aggregate if within our target weeks
             if (weeklyData[key]) {
@@ -643,14 +643,14 @@ export class DashboardService {
         for (let i = 0; i < 12; i++) {
             const d = new Date(startDate);
             d.setMonth(startDate.getMonth() + i);
-            const key = `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}`;
+            const key = DashboardService.monthKey(d);
             months.push(key);
             monthlyData[key] = { gmv: 0, orderCount: 0 };
         }
 
         rawData.forEach(item => {
             const date = new Date(item.createdAt);
-            const key = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}`;
+            const key = DashboardService.monthKey(date);
             
             if (monthlyData[key]) {
                 monthlyData[key].gmv += (item._sum.totalAmount || 0);
@@ -672,10 +672,10 @@ export class DashboardService {
         for (let i = 0; i < 15; i++) {
             const date = new Date(startDate);
             date.setDate(startDate.getDate() + i);
-            const dateString = date.toISOString().split('T')[0];
+            const dateString = DashboardService.dateKey(date);
             
             const dayData = rawData.filter(item => {
-                const itemDate = new Date(item.createdAt).toISOString().split('T')[0];
+                const itemDate = DashboardService.dateKey(new Date(item.createdAt));
                 return itemDate === dateString;
             });
 
@@ -777,11 +777,11 @@ export class DashboardService {
           const diff = date.getDate() - day + (day === 0 ? -6 : 1);
           const monday = new Date(date);
           monday.setDate(diff);
-          key = monday.toISOString().split('T')[0];
+          key = DashboardService.dateKey(monday);
       } else if (dimension === 'month') {
-          key = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}`;
+          key = DashboardService.monthKey(date);
       } else {
-          key = date.toISOString().split('T')[0];
+          key = DashboardService.dateKey(date);
       }
       
       if (!aggregatedData[key]) aggregatedData[key] = {};
@@ -815,19 +815,19 @@ export class DashboardService {
             const day = d.getDay();
             const diff = d.getDate() - day + (day === 0 ? -6 : 1);
             const monday = new Date(d.setDate(diff));
-            keys.push(monday.toISOString().split('T')[0]);
+            keys.push(DashboardService.dateKey(monday));
         }
     } else if (dimension === 'month') {
         for (let i = 0; i < 12; i++) {
             const d = new Date(startDate);
             d.setMonth(startDate.getMonth() + i);
-            keys.push(`${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}`);
+            keys.push(DashboardService.monthKey(d));
         }
     } else {
         for (let i = 0; i < 15; i++) {
             const d = new Date(startDate);
             d.setDate(startDate.getDate() + i);
-            keys.push(d.toISOString().split('T')[0]);
+            keys.push(DashboardService.dateKey(d));
         }
     }
 
@@ -863,7 +863,7 @@ export class DashboardService {
                 const currentKey = key;
                 const nextDate = new Date(key);
                 nextDate.setDate(nextDate.getDate() + 1);
-                const nextKey = nextDate.toISOString().split('T')[0];
+                const nextKey = DashboardService.dateKey(nextDate);
                 
                 const currentData = aggregatedData[currentKey]?.[p];
                 const nextData = aggregatedData[nextKey]?.[p];
@@ -914,9 +914,9 @@ export class DashboardService {
         )
       `);
 
-      const currentStartKey = currentStart.toISOString().split('T')[0];
-      const previousStartKey = previousStart.toISOString().split('T')[0];
-      const nowKey = now.toISOString().split('T')[0];
+      const currentStartKey = DashboardService.dateKey(currentStart);
+      const previousStartKey = DashboardService.dateKey(previousStart);
+      const nowKey = DashboardService.dateKey(now);
 
       const [summaryRow] = await prisma.$queryRaw<{
         current_exposure: number;
@@ -1599,5 +1599,13 @@ export class DashboardService {
     if (upper === 'RRZ' || platform === '人人租') return '人人租';
     if (platform === '支付宝小程序') return '支付宝小程序';
     return platform;
+  }
+
+  private static dateKey(date: Date) {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(date);
+  }
+
+  private static monthKey(date: Date) {
+    return DashboardService.dateKey(date).slice(0, 7);
   }
 }

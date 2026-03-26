@@ -624,7 +624,7 @@ export class ReportService {
   }
 
   private static dateKey(date: Date) {
-    return date.toLocaleDateString('en-CA');
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(date);
   }
 
   private static inScope(platform: string | null | undefined, promotionChannel: string | null | undefined, scope: ReportScope) {
