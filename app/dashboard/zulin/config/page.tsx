@@ -6,6 +6,7 @@ import useSWR from 'swr';
 import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
 import type { UploadProps } from 'antd';
+import type { UploadFile } from 'antd/es/upload/interface';
 import MainLayout from '../../../components/MainLayout';
 
 interface ZulinAlertConfig {
@@ -58,8 +59,16 @@ const ZulinAlertConfigPage: React.FC = () => {
   const [importing, setImporting] = React.useState(false);
   const [importDate, setImportDate] = React.useState<Dayjs>(dayjs());
   const [csvText, setCsvText] = React.useState('');
+  const [uploadFiles, setUploadFiles] = React.useState<UploadFile[]>([]);
   const [importResult, setImportResult] = React.useState<{
     batchId: string;
+    payloadCount: number;
+    insertedCount: number;
+    updatedCount: number;
+    failedCount: number;
+  } | null>(null);
+  const [batchImportResult, setBatchImportResult] = React.useState<{
+    fileCount: number;
     payloadCount: number;
     insertedCount: number;
     updatedCount: number;
@@ -239,14 +248,86 @@ const ZulinAlertConfigPage: React.FC = () => {
     }
   };
 
+  const extractDateFromFileName = (fileName: string) => {
+    const matches = fileName.match(/\d{4}-\d{2}-\d{2}/g) || [];
+    if (!matches.length) {
+      return importDate.format('YYYY-MM-DD');
+    }
+    return matches[0];
+  };
+
+  const importCsvFiles = async () => {
+    if (!uploadFiles.length) {
+      message.warning('请先选择CSV文件');
+      return;
+    }
+    try {
+      setImporting(true);
+      setImportResult(null);
+      setBatchImportResult(null);
+      let payloadCount = 0;
+      let insertedCount = 0;
+      let updatedCount = 0;
+      let failedCount = 0;
+      let successFileCount = 0;
+      for (const uploadFile of uploadFiles) {
+        const rawFile = uploadFile.originFileObj;
+        if (!rawFile) {
+          continue;
+        }
+        const raw = (await rawFile.text()).trim();
+        if (!raw) {
+          continue;
+        }
+        const parsed = parseCsv(raw);
+        const items = buildIngestItems(parsed);
+        if (!items.length) {
+          continue;
+        }
+        const response = await fetch('/api/dashboard/zulin/ingest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            date: extractDateFromFileName(uploadFile.name),
+            source: 'manual_csv_batch',
+            items,
+          }),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error((result as { error?: string })?.error || `导入失败：${uploadFile.name}`);
+        }
+        payloadCount += Number((result as { payloadCount?: number }).payloadCount || 0);
+        insertedCount += Number((result as { insertedCount?: number }).insertedCount || 0);
+        updatedCount += Number((result as { updatedCount?: number }).updatedCount || 0);
+        failedCount += Number((result as { failedCount?: number }).failedCount || 0);
+        successFileCount += 1;
+      }
+      setBatchImportResult({
+        fileCount: successFileCount,
+        payloadCount,
+        insertedCount,
+        updatedCount,
+        failedCount,
+      });
+      message.success(`批量导入完成，共处理 ${successFileCount} 个文件`);
+    } catch (errorInfo) {
+      message.error(errorInfo instanceof Error ? errorInfo.message : '批量导入失败');
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const uploadProps: UploadProps = {
     accept: '.csv,text/csv',
-    maxCount: 1,
-    showUploadList: false,
+    multiple: true,
+    fileList: uploadFiles,
+    onChange: ({ fileList }) => {
+      setUploadFiles(fileList.slice(-100));
+    },
     beforeUpload: async (file) => {
       const text = await file.text();
       setCsvText(text);
-      message.success(`已读取文件：${file.name}`);
       return false;
     },
   };
@@ -321,14 +402,14 @@ const ZulinAlertConfigPage: React.FC = () => {
               <Upload.Dragger {...uploadProps} style={{ width: 240, padding: 4 }}>
                 <Space>
                   <InboxOutlined />
-                  <Typography.Text>上传CSV</Typography.Text>
+                  <Typography.Text>上传CSV(可多选)</Typography.Text>
                 </Space>
               </Upload.Dragger>
             </Space>
           }
         >
           <Space direction="vertical" size={12} style={{ width: '100%' }}>
-            <Typography.Text type="secondary">支持直接粘贴芝麻租赁导出的CSV内容，按选择日期写入当日数据。</Typography.Text>
+            <Typography.Text type="secondary">支持直接粘贴CSV，或批量上传CSV文件；批量上传时会优先从文件名识别日期（如 zulin_data_2026-03-18_2026-03-19T09-08-13.csv 取 2026-03-18）。</Typography.Text>
             <Input.TextArea
               value={csvText}
               onChange={(e) => setCsvText(e.target.value)}
@@ -339,6 +420,9 @@ const ZulinAlertConfigPage: React.FC = () => {
               <Button type="primary" loading={importing} onClick={importCsv}>
                 解析并导入
               </Button>
+              <Button type="primary" loading={importing} onClick={importCsvFiles}>
+                批量导入已选文件
+              </Button>
               <Button onClick={() => setCsvText('')}>清空</Button>
             </Space>
             {importResult ? (
@@ -347,6 +431,14 @@ const ZulinAlertConfigPage: React.FC = () => {
                 showIcon
                 message="导入完成"
                 description={`批次 ${importResult.batchId}，总计 ${importResult.payloadCount} 条，新增 ${importResult.insertedCount} 条，更新 ${importResult.updatedCount} 条，失败 ${importResult.failedCount} 条`}
+              />
+            ) : null}
+            {batchImportResult ? (
+              <Alert
+                type="success"
+                showIcon
+                message="批量导入完成"
+                description={`共处理 ${batchImportResult.fileCount} 个文件，总计 ${batchImportResult.payloadCount} 条，新增 ${batchImportResult.insertedCount} 条，更新 ${batchImportResult.updatedCount} 条，失败 ${batchImportResult.failedCount} 条`}
               />
             ) : null}
           </Space>
