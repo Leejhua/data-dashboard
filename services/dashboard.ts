@@ -53,6 +53,9 @@ export class DashboardService {
   private static readonly CONTROLLABLE_PLATFORMS = ['闲鱼', '支付宝小程序', '赞晨'];
   private static readonly ZULIN_TREND_POINTS = 7;
   private static readonly DAILY_OPS_MAX_CARDS = 8;
+  static readonly CACHE_TAG_SUMMARY = 'dashboard-summary';
+  static readonly CACHE_TAG_ZULIN_PANEL = 'dashboard-zulin-panel';
+  static readonly CACHE_TAG_DAILY_OPS = 'dashboard-daily-ops-cards';
   private static readonly ZULIN_ALERT_CONFIG_ID = 'default';
   private static readonly ZULIN_ALERT_DEFAULT: Omit<ZulinAlertConfig, 'updatedAt'> = {
     minManagedDays: 5,
@@ -145,8 +148,8 @@ export class DashboardService {
         zulinSummary,
       };
     },
-    ['dashboard-summary'], // Cache key
-    { revalidate: 3600 }   // Revalidate every 1 hour (3600 seconds)
+    ['dashboard-summary'],
+    { revalidate: 3600, tags: [DashboardService.CACHE_TAG_SUMMARY] }
   );
 
   private static async getLatestZulinFile() {
@@ -526,7 +529,7 @@ export class DashboardService {
       }
     },
     ['dashboard-zulin-panel'],
-    { revalidate: 600 }
+    { revalidate: 600, tags: [DashboardService.CACHE_TAG_ZULIN_PANEL] }
   );
 
   private static async getLatestZulinSummary() {
@@ -1577,7 +1580,7 @@ export class DashboardService {
       };
     },
     ['dashboard-daily-ops-cards'],
-    { revalidate: 300 }
+    { revalidate: 300, tags: [DashboardService.CACHE_TAG_DAILY_OPS] }
   );
 
   private static normalizePlatform(platform: string | null | undefined, promotionChannel?: string | null) {

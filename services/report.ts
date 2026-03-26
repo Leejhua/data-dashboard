@@ -166,68 +166,74 @@ export class ReportService {
       const endKey = ReportService.dateKey(end);
       const prevStartKey = ReportService.dateKey(prevStart);
       const prevEndKey = ReportService.dateKey(prevEnd);
+      const previousBaselineDate = new Date(prevStart);
+      previousBaselineDate.setDate(previousBaselineDate.getDate() - 1);
+      const baselineStartKey = ReportService.dateKey(previousBaselineDate);
 
-      const currentRows = await prisma.$queryRaw<{
+      const rawRows = await prisma.$queryRaw<{
         data_date: string;
+        product_id: string;
+        title: string;
         exposure: number;
         visits: number;
         amount: number;
       }[]>`
         SELECT
           data_date,
-          COALESCE(SUM(exposure), 0) AS exposure,
-          COALESCE(SUM(visits), 0) AS visits,
-          COALESCE(SUM(amount), 0) AS amount
+          product_id,
+          title,
+          COALESCE(exposure, 0) AS exposure,
+          COALESCE(visits, 0) AS visits,
+          COALESCE(amount, 0) AS amount
         FROM zulin_daily_metrics
-        WHERE data_date >= ${startKey} AND data_date < ${endKey}
-        GROUP BY data_date
-        ORDER BY data_date ASC
+        WHERE data_date >= ${baselineStartKey} AND data_date < ${endKey}
+        ORDER BY product_id ASC, data_date ASC
       `;
 
-      const prevRows = await prisma.$queryRaw<{
-        data_date: string;
-        exposure: number;
-        visits: number;
-        amount: number;
-      }[]>`
-        SELECT
-          data_date,
-          COALESCE(SUM(exposure), 0) AS exposure,
-          COALESCE(SUM(visits), 0) AS visits,
-          COALESCE(SUM(amount), 0) AS amount
-        FROM zulin_daily_metrics
-        WHERE data_date >= ${prevStartKey} AND data_date < ${prevEndKey}
-        GROUP BY data_date
-        ORDER BY data_date ASC
-      `;
+      type ProductPoint = { date: string; exposure: number; visits: number; revenue: number };
+      const perProductSeries = new Map<string, { title: string; points: ProductPoint[] }>();
+      for (const row of rawRows) {
+        const productId = String(row.product_id || '').trim();
+        if (!productId) continue;
+        const current = perProductSeries.get(productId) || { title: '', points: [] };
+        current.title = String(row.title || current.title || '').trim();
+        current.points.push({
+          date: String(row.data_date || ''),
+          exposure: Number(row.exposure || 0),
+          visits: Number(row.visits || 0),
+          revenue: Number(row.amount || 0),
+        });
+        perProductSeries.set(productId, current);
+      }
 
-      const sumRows = (rows: Array<{ exposure: number; visits: number; amount: number }>) => {
-        return rows.reduce(
-          (acc, row) => {
-            acc.exposure += Number(row.exposure || 0);
-            acc.visits += Number(row.visits || 0);
-            acc.revenue += Number(row.amount || 0);
-            return acc;
-          },
-          { exposure: 0, visits: 0, revenue: 0 }
-        );
+      const previousDateKey = (dateKey: string) => {
+        const date = new Date(`${dateKey}T00:00:00`);
+        date.setDate(date.getDate() - 1);
+        return ReportService.dateKey(date);
       };
 
-      const currentSummary = sumRows(currentRows);
-      const previousSummary = sumRows(prevRows);
-      const currentConversionRate = currentSummary.exposure > 0 ? (currentSummary.visits / currentSummary.exposure) * 100 : 0;
-      const previousConversionRate = previousSummary.exposure > 0 ? (previousSummary.visits / previousSummary.exposure) * 100 : 0;
+      const valueAtOrBefore = (points: ProductPoint[], dateKey: string, field: 'exposure' | 'visits' | 'revenue') => {
+        let value = 0;
+        for (const point of points) {
+          if (point.date > dateKey) break;
+          value = Number(point[field] || 0);
+        }
+        return value;
+      };
 
-      const dailyMap = new Map(
-        currentRows.map((row) => [
-          row.data_date,
-          {
-            exposure: Number(row.exposure || 0),
-            visits: Number(row.visits || 0),
-            revenue: Number(row.amount || 0),
-          },
-        ])
-      );
+      const calcRangeDelta = (points: ProductPoint[], rangeStartKey: string, rangeEndKey: string, field: 'exposure' | 'visits' | 'revenue') => {
+        const endDateKey = previousDateKey(rangeEndKey);
+        const startBaselineKey = previousDateKey(rangeStartKey);
+        const endValue = valueAtOrBefore(points, endDateKey, field);
+        const startValue = valueAtOrBefore(points, startBaselineKey, field);
+        return Math.max(0, endValue - startValue);
+      };
+
+      const calcDayDelta = (points: ProductPoint[], dateKey: string, field: 'exposure' | 'visits' | 'revenue') => {
+        const currentValue = valueAtOrBefore(points, dateKey, field);
+        const prevValue = valueAtOrBefore(points, previousDateKey(dateKey), field);
+        return Math.max(0, currentValue - prevValue);
+      };
 
       const allDates: string[] = [];
       const iterDate = new Date(start);
@@ -237,57 +243,67 @@ export class ReportService {
         iterDate.setDate(iterDate.getDate() + 1);
       }
 
-      const reducedDates = ReportService.reduceTrendPoints(allDates, ReportService.ZULIN_TREND_POINTS);
-      const trend = reducedDates.map((date) => {
-        const row = dailyMap.get(date);
-        return {
-          date,
-          exposure: Number(row?.exposure || 0),
-          visits: Number(row?.visits || 0),
-          revenue: Number(row?.revenue || 0),
-        };
+      const trendRows = allDates.map((date) => {
+        let exposure = 0;
+        let visits = 0;
+        let revenue = 0;
+        for (const { points } of perProductSeries.values()) {
+          exposure += calcDayDelta(points, date, 'exposure');
+          visits += calcDayDelta(points, date, 'visits');
+          revenue += calcDayDelta(points, date, 'revenue');
+        }
+        return { date, exposure, visits, revenue };
       });
+      const trend = ReportService.reduceTrendPoints(trendRows, ReportService.ZULIN_TREND_POINTS);
 
-      const productRows = await prisma.$queryRaw<{
-        product_id: string;
-        title: string;
-        current_exposure: number;
-        current_visits: number;
-        current_amount: number;
-        previous_amount: number;
-      }[]>`
-        SELECT
-          product_id,
-          title,
-          COALESCE(SUM(CASE WHEN data_date >= ${startKey} AND data_date < ${endKey} THEN exposure ELSE 0 END), 0) AS current_exposure,
-          COALESCE(SUM(CASE WHEN data_date >= ${startKey} AND data_date < ${endKey} THEN visits ELSE 0 END), 0) AS current_visits,
-          COALESCE(SUM(CASE WHEN data_date >= ${startKey} AND data_date < ${endKey} THEN amount ELSE 0 END), 0) AS current_amount,
-          COALESCE(SUM(CASE WHEN data_date >= ${prevStartKey} AND data_date < ${prevEndKey} THEN amount ELSE 0 END), 0) AS previous_amount
-        FROM zulin_daily_metrics
-        GROUP BY product_id, title
-      `;
-
-      const products = productRows
-        .map((item) => {
-          const revenue = Number(item.current_amount || 0);
-          const prevRevenue = Number(item.previous_amount || 0);
-          const exposure = Number(item.current_exposure || 0);
-          const visits = Number(item.current_visits || 0);
+      const allProductStats = Array.from(perProductSeries.entries())
+        .map(([productId, item]) => {
+          const revenue = calcRangeDelta(item.points, startKey, endKey, 'revenue');
+          const prevRevenue = calcRangeDelta(item.points, prevStartKey, prevEndKey, 'revenue');
+          const exposure = calcRangeDelta(item.points, startKey, endKey, 'exposure');
+          const visits = calcRangeDelta(item.points, startKey, endKey, 'visits');
           const conversionRate = exposure > 0 ? (visits / exposure) * 100 : 0;
           const revenueGrowth = prevRevenue > 0 ? ((revenue - prevRevenue) / prevRevenue) * 100 : (revenue > 0 ? 100 : 0);
           return {
-            productId: item.product_id,
-            title: item.title,
+            productId,
+            title: item.title || productId,
             exposure,
             visits,
             revenue,
             conversionRate,
             revenueGrowth,
           };
-        })
+        });
+
+      const products = allProductStats
         .filter((item) => item.revenue > 0 || item.exposure > 0 || item.visits > 0)
         .sort((a, b) => b.revenue - a.revenue)
         .slice(0, 5);
+
+      const currentSummary = allProductStats.reduce(
+        (acc, item) => {
+          acc.exposure += item.exposure;
+          acc.visits += item.visits;
+          acc.revenue += item.revenue;
+          return acc;
+        },
+        { exposure: 0, visits: 0, revenue: 0 }
+      );
+      const previousSummary = allProductStats.reduce(
+        (acc, item) => {
+          const perProduct = perProductSeries.get(item.productId);
+          if (!perProduct) {
+            return acc;
+          }
+          acc.exposure += calcRangeDelta(perProduct.points, prevStartKey, prevEndKey, 'exposure');
+          acc.visits += calcRangeDelta(perProduct.points, prevStartKey, prevEndKey, 'visits');
+          acc.revenue += calcRangeDelta(perProduct.points, prevStartKey, prevEndKey, 'revenue');
+          return acc;
+        },
+        { exposure: 0, visits: 0, revenue: 0 }
+      );
+      const currentConversionRate = currentSummary.exposure > 0 ? (currentSummary.visits / currentSummary.exposure) * 100 : 0;
+      const previousConversionRate = previousSummary.exposure > 0 ? (previousSummary.visits / previousSummary.exposure) * 100 : 0;
 
       return {
         summary: {

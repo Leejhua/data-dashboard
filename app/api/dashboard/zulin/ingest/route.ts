@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { revalidateTag } from 'next/cache';
 import { prisma } from '@/lib/prisma';
 
 type IngestItem = {
@@ -27,6 +28,8 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, x-zulin-token',
 };
+
+const DASHBOARD_REVALIDATE_TAGS = ['dashboard-zulin-panel', 'dashboard-daily-ops-cards', 'dashboard-summary'];
 
 const jsonWithCors = (body: unknown, status: number) => {
   return NextResponse.json(body, {
@@ -208,6 +211,10 @@ export async function POST(request: Request) {
     )
     VALUES (${batchId}, ${String(payload.source || 'extension') || 'extension'}, ${items.length}, ${inserted}, ${updated}, ${failed}, ${now})
   `;
+
+  for (const tag of DASHBOARD_REVALIDATE_TAGS) {
+    revalidateTag(tag, 'max');
+  }
 
   return NextResponse.json(
     {
