@@ -23,6 +23,7 @@ type ValidOrderLite = {
 };
 
 type ReportScope = 'all' | 'self';
+type ReportPeriod = 'week' | 'biweek' | 'month' | 'current_week' | 'current_month';
 
 export class ReportService {
   private static readonly VALID_STATUSES = ['COMPLETED', 'PENDING_SHIPMENT', 'RENTING', 'RETURNING', 'PENDING_RECEIPT', 'BOUGHT_OUT'];
@@ -31,26 +32,40 @@ export class ReportService {
   private static readonly ZULIN_TREND_POINTS = 10;
 
   static async getReportData(
-    period: 'week' | 'biweek' | 'month' | 'current_week' | 'current_month' = 'week',
-    scope: ReportScope = 'all'
+    period: ReportPeriod = 'week',
+    scope: ReportScope = 'all',
+    customDateRange?: { startDate?: string; endDate?: string }
   ) {
-    const endDate = new Date();
-    const startDate = new Date();
+    const parseDate = (raw?: string) => {
+      const text = String(raw || '').trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+        return null;
+      }
+      const value = new Date(`${text}T00:00:00`);
+      return Number.isNaN(value.getTime()) ? null : value;
+    };
+    const customStartDate = parseDate(customDateRange?.startDate);
+    const customEndDate = parseDate(customDateRange?.endDate);
+    const hasCustomRange = Boolean(customStartDate && customEndDate && customStartDate < customEndDate);
+    const endDate = hasCustomRange
+      ? new Date(customEndDate!.getFullYear(), customEndDate!.getMonth(), customEndDate!.getDate() + 1)
+      : new Date();
+    const startDate = hasCustomRange ? new Date(customStartDate as Date) : new Date();
 
-    if (period === 'week') {
-      startDate.setDate(endDate.getDate() - 7);
-    } else if (period === 'biweek') {
-      startDate.setDate(endDate.getDate() - 14);
-    } else if (period === 'month') {
-      startDate.setDate(endDate.getDate() - 30);
-    } else if (period === 'current_week') {
-      // Start from this Monday
-      const day = startDate.getDay();
-      const diff = startDate.getDate() - day + (day === 0 ? -6 : 1);
-      startDate.setDate(diff);
-    } else if (period === 'current_month') {
-      // Start from 1st of this month
-      startDate.setDate(1);
+    if (!hasCustomRange) {
+      if (period === 'week') {
+        startDate.setDate(endDate.getDate() - 7);
+      } else if (period === 'biweek') {
+        startDate.setDate(endDate.getDate() - 14);
+      } else if (period === 'month') {
+        startDate.setDate(endDate.getDate() - 30);
+      } else if (period === 'current_week') {
+        const day = startDate.getDay();
+        const diff = startDate.getDate() - day + (day === 0 ? -6 : 1);
+        startDate.setDate(diff);
+      } else if (period === 'current_month') {
+        startDate.setDate(1);
+      }
     }
 
     startDate.setHours(0, 0, 0, 0);

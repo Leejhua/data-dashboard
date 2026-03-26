@@ -224,82 +224,50 @@ export class DashboardService {
     };
   }
 
-  private static async ensureZulinAlertConfigTable() {
-    await prisma.$executeRawUnsafe(`
-      CREATE TABLE IF NOT EXISTS zulin_alert_config (
-        id TEXT PRIMARY KEY,
-        min_managed_days INTEGER NOT NULL DEFAULT 5,
-        max_exposure INTEGER NOT NULL DEFAULT 100,
-        max_visit_rate REAL NOT NULL DEFAULT 8,
-        weight_exposure REAL NOT NULL DEFAULT 0.45,
-        weight_visit_rate REAL NOT NULL DEFAULT 0.35,
-        weight_managed_days REAL NOT NULL DEFAULT 0.2,
-        min_warning_score REAL NOT NULL DEFAULT 60,
-        max_warning_items INTEGER NOT NULL DEFAULT 15,
-        updated_at TEXT NOT NULL
-      )
-    `);
+  private static async ensureZulinAlertConfigRecord() {
     const now = new Date().toISOString();
     const defaults = DashboardService.ZULIN_ALERT_DEFAULT;
-    await prisma.$executeRaw`
-      INSERT INTO zulin_alert_config (
-        id, min_managed_days, max_exposure, max_visit_rate, weight_exposure,
-        weight_visit_rate, weight_managed_days, min_warning_score, max_warning_items, updated_at
-      )
-      VALUES (
-        ${DashboardService.ZULIN_ALERT_CONFIG_ID}, ${defaults.minManagedDays}, ${defaults.maxExposure}, ${defaults.maxVisitRate}, ${defaults.weightExposure},
-        ${defaults.weightVisitRate}, ${defaults.weightManagedDays}, ${defaults.minWarningScore}, ${defaults.maxWarningItems}, ${now}
-      )
-      ON CONFLICT(id) DO NOTHING
-    `;
+    await prisma.zulinAlertConfig.upsert({
+      where: { id: DashboardService.ZULIN_ALERT_CONFIG_ID },
+      update: {},
+      create: {
+        id: DashboardService.ZULIN_ALERT_CONFIG_ID,
+        minManagedDays: defaults.minManagedDays,
+        maxExposure: defaults.maxExposure,
+        maxVisitRate: defaults.maxVisitRate,
+        weightExposure: defaults.weightExposure,
+        weightVisitRate: defaults.weightVisitRate,
+        weightManagedDays: defaults.weightManagedDays,
+        minWarningScore: defaults.minWarningScore,
+        maxWarningItems: defaults.maxWarningItems,
+        updatedAt: now,
+      },
+    });
   }
 
   static async getZulinAlertConfig(): Promise<ZulinAlertConfig> {
-    await DashboardService.ensureZulinAlertConfigTable();
-    const rows = await prisma.$queryRaw<Array<{
-      min_managed_days: number;
-      max_exposure: number;
-      max_visit_rate: number;
-      weight_exposure: number;
-      weight_visit_rate: number;
-      weight_managed_days: number;
-      min_warning_score: number;
-      max_warning_items: number;
-      updated_at: string;
-    }>>`
-      SELECT
-        min_managed_days,
-        max_exposure,
-        max_visit_rate,
-        weight_exposure,
-        weight_visit_rate,
-        weight_managed_days,
-        min_warning_score,
-        max_warning_items,
-        updated_at
-      FROM zulin_alert_config
-      WHERE id = ${DashboardService.ZULIN_ALERT_CONFIG_ID}
-      LIMIT 1
-    `;
-    const row = rows[0];
+    await DashboardService.ensureZulinAlertConfigRecord();
+    const row = await prisma.zulinAlertConfig.findUnique({
+      where: { id: DashboardService.ZULIN_ALERT_CONFIG_ID },
+    });
     const normalized = DashboardService.normalizeAlertConfig({
-      minManagedDays: row?.min_managed_days,
-      maxExposure: row?.max_exposure,
-      maxVisitRate: row?.max_visit_rate,
-      weightExposure: row?.weight_exposure,
-      weightVisitRate: row?.weight_visit_rate,
-      weightManagedDays: row?.weight_managed_days,
-      minWarningScore: row?.min_warning_score,
-      maxWarningItems: row?.max_warning_items,
+      minManagedDays: row?.minManagedDays,
+      maxExposure: row?.maxExposure,
+      maxVisitRate: row?.maxVisitRate,
+      weightExposure: row?.weightExposure,
+      weightVisitRate: row?.weightVisitRate,
+      weightManagedDays: row?.weightManagedDays,
+      minWarningScore: row?.minWarningScore,
+      maxWarningItems: row?.maxWarningItems,
     });
     return {
       ...normalized,
-      updatedAt: row?.updated_at || new Date().toISOString(),
+      updatedAt: row?.updatedAt || new Date().toISOString(),
     };
   }
 
   static async updateZulinAlertConfig(input: Partial<ZulinAlertConfig>): Promise<ZulinAlertConfig> {
-    await DashboardService.ensureZulinAlertConfigTable();
+    await DashboardService.ensureZulinAlertConfigRecord();
     const current = await DashboardService.getZulinAlertConfig();
     const normalized = DashboardService.normalizeAlertConfig({
       minManagedDays: input.minManagedDays ?? current.minManagedDays,
@@ -312,20 +280,20 @@ export class DashboardService {
       maxWarningItems: input.maxWarningItems ?? current.maxWarningItems,
     });
     const now = new Date().toISOString();
-    await prisma.$executeRaw`
-      UPDATE zulin_alert_config
-      SET
-        min_managed_days = ${normalized.minManagedDays},
-        max_exposure = ${normalized.maxExposure},
-        max_visit_rate = ${normalized.maxVisitRate},
-        weight_exposure = ${normalized.weightExposure},
-        weight_visit_rate = ${normalized.weightVisitRate},
-        weight_managed_days = ${normalized.weightManagedDays},
-        min_warning_score = ${normalized.minWarningScore},
-        max_warning_items = ${normalized.maxWarningItems},
-        updated_at = ${now}
-      WHERE id = ${DashboardService.ZULIN_ALERT_CONFIG_ID}
-    `;
+    await prisma.zulinAlertConfig.update({
+      where: { id: DashboardService.ZULIN_ALERT_CONFIG_ID },
+      data: {
+        minManagedDays: normalized.minManagedDays,
+        maxExposure: normalized.maxExposure,
+        maxVisitRate: normalized.maxVisitRate,
+        weightExposure: normalized.weightExposure,
+        weightVisitRate: normalized.weightVisitRate,
+        weightManagedDays: normalized.weightManagedDays,
+        minWarningScore: normalized.minWarningScore,
+        maxWarningItems: normalized.maxWarningItems,
+        updatedAt: now,
+      },
+    });
     return {
       ...normalized,
       updatedAt: now,

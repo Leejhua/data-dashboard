@@ -12,6 +12,8 @@ export async function GET(request: Request) {
   type ReportScope = (typeof allowedScopes)[number];
   const rawPeriod = searchParams.get('period');
   const rawScope = searchParams.get('scope');
+  const startDate = String(searchParams.get('startDate') || '').trim();
+  const endDate = String(searchParams.get('endDate') || '').trim();
   const period: ReportPeriod = (rawPeriod && allowedPeriods.includes(rawPeriod as ReportPeriod))
     ? (rawPeriod as ReportPeriod)
     : 'week';
@@ -20,7 +22,7 @@ export async function GET(request: Request) {
     : 'all';
 
   try {
-    const data = await ReportService.getReportData(period, scope);
+    const data = await ReportService.getReportData(period, scope, { startDate, endDate });
     return NextResponse.json(data);
   } catch (error) {
     console.error('Error fetching report data:', error);

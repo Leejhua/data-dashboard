@@ -417,3 +417,18 @@ model ZulinUploadBatch {
 
   @@map("zulin_upload_batch")
 }
+
+model ZulinAlertConfig {
+  id               String @id @map("id")
+  minManagedDays   Int    @default(5) @map("min_managed_days")
+  maxExposure      Int    @default(100) @map("max_exposure")
+  maxVisitRate     Float  @default(8) @map("max_visit_rate")
+  weightExposure   Float  @default(0.45) @map("weight_exposure")
+  weightVisitRate  Float  @default(0.35) @map("weight_visit_rate")
+  weightManagedDays Float @default(0.2) @map("weight_managed_days")
+  minWarningScore  Float  @default(60) @map("min_warning_score")
+  maxWarningItems  Int    @default(15) @map("max_warning_items")
+  updatedAt        String @map("updated_at")
+
+  @@map("zulin_alert_config")
+}

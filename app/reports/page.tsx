@@ -1,9 +1,11 @@
 
 'use client';
 import React, { useState } from 'react';
-import { Breadcrumb, theme, Card, Row, Col, Statistic, Radio, Table, Space, Tooltip, Empty, Alert } from 'antd';
+import { Breadcrumb, theme, Card, Row, Col, Statistic, Radio, Table, Space, Tooltip, Empty, Alert, DatePicker } from 'antd';
 import { ArrowUpOutlined, ArrowDownOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import useSWR from 'swr';
+import dayjs from 'dayjs';
+import type { Dayjs } from 'dayjs';
 import MainLayout from '../components/MainLayout';
 import ReactECharts from 'echarts-for-react';
 
@@ -122,19 +124,64 @@ interface ReportData {
   };
 }
 
+type ReportPeriod = 'week' | 'biweek' | 'month' | 'current_week' | 'current_month';
+const { RangePicker } = DatePicker;
+
 const ReportsPage: React.FC = () => {
-  const [period, setPeriod] = useState<'week' | 'biweek' | 'month' | 'current_week' | 'current_month'>('week');
+  const [period] = useState<ReportPeriod>('week');
+  const mondayStart = React.useMemo(() => {
+    const today = dayjs().startOf('day');
+    const day = today.day();
+    const offset = day === 0 ? 6 : day - 1;
+    return today.subtract(offset, 'day');
+  }, []);
+  const [dateRange, setDateRange] = useState<[Dayjs, Dayjs] | null>([
+    dayjs().subtract(7, 'day').startOf('day'),
+    dayjs().endOf('day'),
+  ]);
   const [scope, setScope] = useState<'all' | 'self'>('all');
   
   const {
     token: { colorBgContainer, borderRadiusLG },
   } = theme.useToken();
 
-  const { data, isLoading, error } = useSWR<ReportData>(`/api/reports?period=${period}&scope=${scope}`, fetcher, {
+  const reportApi = React.useMemo(() => {
+    if (dateRange) {
+      const startDate = dateRange[0].format('YYYY-MM-DD');
+      const endDate = dateRange[1].format('YYYY-MM-DD');
+      return `/api/reports?scope=${scope}&startDate=${startDate}&endDate=${endDate}`;
+    }
+    return `/api/reports?period=${period}&scope=${scope}`;
+  }, [dateRange, period, scope]);
+
+  const { data, isLoading, error } = useSWR<ReportData>(reportApi, fetcher, {
     shouldRetryOnError: false,
     revalidateOnFocus: false,
   });
   const loading = isLoading && !data && !error;
+
+  const quickDatePresets = [
+    {
+      label: '本周',
+      value: [mondayStart, dayjs().endOf('day')] as [Dayjs, Dayjs],
+    },
+    {
+      label: '本月',
+      value: [dayjs().startOf('month'), dayjs().endOf('day')] as [Dayjs, Dayjs],
+    },
+    {
+      label: '近7天',
+      value: [dayjs().subtract(7, 'day').startOf('day'), dayjs().endOf('day')] as [Dayjs, Dayjs],
+    },
+    {
+      label: '近14天',
+      value: [dayjs().subtract(14, 'day').startOf('day'), dayjs().endOf('day')] as [Dayjs, Dayjs],
+    },
+    {
+      label: '近30天',
+      value: [dayjs().subtract(30, 'day').startOf('day'), dayjs().endOf('day')] as [Dayjs, Dayjs],
+    },
+  ];
 
   const renderGrowth = (value: number) => {
     const numericValue = toNumber(value);
@@ -372,13 +419,12 @@ const ReportsPage: React.FC = () => {
             <Radio.Button value="all">全渠道</Radio.Button>
             <Radio.Button value="self">自有渠道</Radio.Button>
           </Radio.Group>
-          <Radio.Group value={period} onChange={(e) => setPeriod(e.target.value)} buttonStyle="solid">
-            <Radio.Button value="current_week">本周</Radio.Button>
-            <Radio.Button value="current_month">本月</Radio.Button>
-            <Radio.Button value="week">近7天</Radio.Button>
-            <Radio.Button value="biweek">近14天</Radio.Button>
-            <Radio.Button value="month">近30天</Radio.Button>
-          </Radio.Group>
+          <RangePicker
+            value={dateRange}
+            onChange={(dates) => setDateRange(dates && dates[0] && dates[1] ? [dates[0], dates[1]] : null)}
+            presets={quickDatePresets}
+            allowClear={false}
+          />
         </Space>
       </div>
       
