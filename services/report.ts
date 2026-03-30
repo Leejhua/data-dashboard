@@ -26,7 +26,7 @@ type ReportScope = 'all' | 'self';
 type ReportPeriod = 'week' | 'biweek' | 'month' | 'current_week' | 'current_month';
 
 export class ReportService {
-  private static readonly VALID_STATUSES = ['COMPLETED', 'PENDING_SHIPMENT', 'RENTING', 'RETURNING', 'PENDING_RECEIPT', 'BOUGHT_OUT'];
+  private static readonly VALID_STATUSES = ['COMPLETED', 'PENDING_SHIPMENT', 'RENTING', 'RETURNING', 'PENDING_RECEIPT', 'BOUGHT_OUT', 'SHIPPED_PENDING_CONFIRMATION', 'WAIT_PAY', 'PENDING_REVIEW'];
   private static readonly REFUND_STATUSES = ['CLOSED', 'REFUNDED', 'CANCELED'];
   private static readonly SELF_PLATFORMS = ['赞晨', '支付宝小程序'];
   private static readonly ZULIN_TREND_POINTS = 10;
@@ -107,7 +107,38 @@ export class ReportService {
     const productData = await ReportService.fetchDeviceData(validOrders, startDate, endDate, scope);
     const channelAnalysis = scope === 'all' ? ReportService.fetchChannelAnalysis(validOrders, startDate, endDate) : null;
     const trendData = ReportService.fetchTrendData(validOrders, startDate, endDate, prevStartDate, prevEndDate, scope);
-    const zulinData = await ReportService.fetchZulinReportData(startDate, endDate, prevStartDate, prevEndDate);
+    const zulinData = await (async () => {
+      if (scope !== 'self') {
+        return null;
+      }
+      const shanghaiTodayStart = new Date(`${ReportService.dateKey(new Date())}T00:00:00`);
+      const zulinEndDate = new Date(Math.min(endDate.getTime(), shanghaiTodayStart.getTime()));
+      const zulinStartDate = new Date(startDate);
+      if (zulinStartDate.getTime() >= zulinEndDate.getTime()) {
+        return {
+          summary: {
+            exposure: 0,
+            visits: 0,
+            revenue: 0,
+            conversionRate: 0,
+            prevExposure: 0,
+            prevVisits: 0,
+            prevRevenue: 0,
+            prevConversionRate: 0,
+            exposureGrowth: 0,
+            visitsGrowth: 0,
+            revenueGrowth: 0,
+            conversionDiff: 0,
+          },
+          trend: [],
+          products: [],
+        };
+      }
+      const zulinDuration = zulinEndDate.getTime() - zulinStartDate.getTime();
+      const zulinPrevEndDate = new Date(zulinStartDate);
+      const zulinPrevStartDate = new Date(zulinPrevEndDate.getTime() - zulinDuration);
+      return ReportService.fetchZulinReportData(zulinStartDate, zulinEndDate, zulinPrevStartDate, zulinPrevEndDate);
+    })();
 
     return {
       summary: {

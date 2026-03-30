@@ -49,7 +49,7 @@ type DailyOpsLlmStatus = {
  * Handles business logic and data aggregation
  */
 export class DashboardService {
-  private static readonly VALID_STATUSES = ['COMPLETED', 'PENDING_SHIPMENT', 'RENTING', 'RETURNING', 'PENDING_RECEIPT', 'BOUGHT_OUT'];
+  private static readonly VALID_STATUSES = ['COMPLETED', 'PENDING_SHIPMENT', 'RENTING', 'RETURNING', 'PENDING_RECEIPT', 'BOUGHT_OUT', 'SHIPPED_PENDING_CONFIRMATION', 'WAIT_PAY', 'PENDING_REVIEW'];
   private static readonly CONTROLLABLE_PLATFORMS = ['闲鱼', '支付宝小程序', '赞晨'];
   private static readonly ZULIN_TREND_POINTS = 7;
   private static readonly DAILY_OPS_MAX_CARDS = 8;
@@ -329,44 +329,6 @@ export class DashboardService {
       `);
       const rows = await prisma.$queryRaw<{
         data_date: string;
-        exposure: number;
-        visits: number;
-        amount: number;
-      }[]>`
-        SELECT
-          data_date,
-          COALESCE(SUM(exposure), 0) AS exposure,
-          COALESCE(SUM(visits), 0) AS visits,
-          COALESCE(SUM(amount), 0) AS amount
-        FROM zulin_daily_metrics
-        GROUP BY data_date
-        ORDER BY data_date ASC
-      `;
-
-      if (!rows.length) {
-        return null;
-      }
-
-      const trendRows = rows.map((row) => {
-        const visits = Number(row.visits || 0);
-        const exposure = Number(row.exposure || 0);
-        const revenue = Number(row.amount || 0);
-        const conversionRate = exposure > 0 ? (visits / exposure) * 100 : 0;
-        return {
-          date: DashboardService.formatZulinDate(row.data_date),
-          exposure,
-          visits,
-          revenue,
-          conversionRate,
-          conversionRateText: `${conversionRate.toFixed(2)}%`,
-        };
-      });
-
-      const latestRow = rows[rows.length - 1];
-      const latest = trendRows[trendRows.length - 1];
-      const trend = DashboardService.reduceZulinTrendPoints(trendRows, DashboardService.ZULIN_TREND_POINTS);
-      const alertConfig = await DashboardService.getZulinAlertConfig();
-      const latestProducts = await prisma.$queryRaw<{
         product_id: string;
         title: string;
         exposure: number;
@@ -375,30 +337,130 @@ export class DashboardService {
         managed_days: number;
       }[]>`
         SELECT
+          data_date,
           product_id,
           title,
-          exposure,
-          visits,
-          amount,
-          managed_days
+          COALESCE(exposure, 0) AS exposure,
+          COALESCE(visits, 0) AS visits,
+          COALESCE(amount, 0) AS amount,
+          COALESCE(managed_days, 0) AS managed_days
         FROM zulin_daily_metrics
-        WHERE data_date = ${latestRow.data_date}
+        ORDER BY product_id ASC, data_date ASC
       `;
-      const normalizedProducts = latestProducts.map((row) => {
-        const exposure = Number(row.exposure || 0);
-        const visits = Number(row.visits || 0);
-        const revenue = Number(row.amount || 0);
-        const managedDays = Number(row.managed_days || 0);
-        return {
-          productId: String(row.product_id || ''),
-          title: String(row.title || ''),
-          exposure,
-          visits,
-          revenue,
-          managedDays,
-          conversionRate: exposure > 0 ? (visits / exposure) * 100 : 0,
-        };
-      });
+
+      if (!rows.length) {
+        return null;
+      }
+
+      type ProductPoint = {
+        date: string;
+        exposure: number;
+        visits: number;
+        revenue: number;
+      };
+      const perProductSeries = new Map<string, { title: string; managedDays: number; points: ProductPoint[] }>();
+      const allDateKeys = new Set<string>();
+      let latestRowDate = '';
+      for (const row of rows) {
+        const productId = String(row.product_id || '').trim();
+        if (!productId) {
+          continue;
+        }
+        const dateKey = String(row.data_date || '').trim();
+        if (!dateKey) {
+          continue;
+        }
+        allDateKeys.add(dateKey);
+        if (!latestRowDate || dateKey > latestRowDate) {
+          latestRowDate = dateKey;
+        }
+        const current = perProductSeries.get(productId) || { title: '', managedDays: 0, points: [] };
+        current.title = String(row.title || current.title || '').trim();
+        current.managedDays = Number(row.managed_days || 0);
+        current.points.push({
+          date: dateKey,
+          exposure: Number(row.exposure || 0),
+          visits: Number(row.visits || 0),
+          revenue: Number(row.amount || 0),
+        });
+        perProductSeries.set(productId, current);
+      }
+
+      const previousDateKey = (dateKey: string) => {
+        const date = new Date(`${dateKey}T00:00:00`);
+        date.setDate(date.getDate() - 1);
+        return DashboardService.dateKey(date);
+      };
+
+      const valueAtOrBefore = (points: ProductPoint[], dateKey: string, field: 'exposure' | 'visits' | 'revenue') => {
+        let value = 0;
+        for (const point of points) {
+          if (point.date > dateKey) {
+            break;
+          }
+          value = Number(point[field] || 0);
+        }
+        return value;
+      };
+
+      const calcDayDelta = (points: ProductPoint[], dateKey: string, field: 'exposure' | 'visits' | 'revenue') => {
+        const currentValue = valueAtOrBefore(points, dateKey, field);
+        const previousValue = valueAtOrBefore(points, previousDateKey(dateKey), field);
+        return Math.max(0, currentValue - previousValue);
+      };
+
+      const trendRows = Array.from(allDateKeys)
+        .sort()
+        .map((dateKey) => {
+          let exposure = 0;
+          let visits = 0;
+          let revenue = 0;
+          for (const { points } of perProductSeries.values()) {
+            exposure += calcDayDelta(points, dateKey, 'exposure');
+            visits += calcDayDelta(points, dateKey, 'visits');
+            revenue += calcDayDelta(points, dateKey, 'revenue');
+          }
+          const conversionRate = exposure > 0 ? (visits / exposure) * 100 : 0;
+          return {
+            date: DashboardService.formatZulinDate(dateKey),
+            rawDate: dateKey,
+            exposure,
+            visits,
+            revenue,
+            conversionRate,
+            conversionRateText: `${conversionRate.toFixed(2)}%`,
+          };
+        });
+
+      const latest = trendRows.find((item) => item.rawDate === latestRowDate) || trendRows[trendRows.length - 1];
+      const trend = DashboardService
+        .reduceZulinTrendPoints(trendRows, DashboardService.ZULIN_TREND_POINTS)
+        .map((item) => ({
+          date: item.date,
+          exposure: item.exposure,
+          visits: item.visits,
+          revenue: item.revenue,
+          conversionRate: item.conversionRate,
+          conversionRateText: item.conversionRateText,
+        }));
+      const alertConfig = await DashboardService.getZulinAlertConfig();
+      const normalizedProducts = Array.from(perProductSeries.entries())
+        .filter(([, item]) => item.points.some((point) => point.date === latestRowDate))
+        .map(([productId, item]) => {
+          const exposure = calcDayDelta(item.points, latestRowDate, 'exposure');
+          const visits = calcDayDelta(item.points, latestRowDate, 'visits');
+          const revenue = calcDayDelta(item.points, latestRowDate, 'revenue');
+          const managedDays = Number(item.managedDays || 0);
+          return {
+            productId,
+            title: String(item.title || productId),
+            exposure,
+            visits,
+            revenue,
+            managedDays,
+            conversionRate: exposure > 0 ? (visits / exposure) * 100 : 0,
+          };
+        });
       const topExposureProducts = [...normalizedProducts]
         .sort((a, b) => b.exposure - a.exposure || b.visits - a.visits)
         .slice(0, 10);

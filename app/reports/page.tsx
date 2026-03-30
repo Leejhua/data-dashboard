@@ -121,7 +121,7 @@ interface ReportData {
       conversionRate: number;
       revenueGrowth: number;
     }>;
-  };
+  } | null;
 }
 
 type ReportPeriod = 'week' | 'biweek' | 'month' | 'current_week' | 'current_month';
@@ -514,6 +514,7 @@ const ReportsPage: React.FC = () => {
           ) : <Empty />}
         </Card>
 
+        {scope === 'self' && (
         <Card title="芝麻租赁表现（支付宝小程序）" style={{ marginBottom: 24 }} loading={loading}>
           <Row gutter={16} style={{ marginBottom: 16 }}>
             <Col span={6}>
@@ -575,6 +576,7 @@ const ReportsPage: React.FC = () => {
             </Col>
           </Row>
         </Card>
+        )}
 
         {/* Channel Analysis */}
         {scope === 'all' && (

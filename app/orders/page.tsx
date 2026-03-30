@@ -196,11 +196,11 @@ const OrdersPage: React.FC = () => {
           'SHIPPED_PENDING_CONFIRMATION': { text: '已发货', color: 'blue' },
           'BOUGHT_OUT': { text: '已买断', color: 'green' },
           'OVERDUE': { text: '已逾期', color: 'red' },
-          'WAIT_PAY': { text: '待支付', color: 'processing' },
+          'WAIT_PAY': { text: '待支付', color: 'gold' },
+          'PENDING_REVIEW': { text: '待审核', color: 'orange' },
+          'SHIPPED_PENDING_CONFIRMATION': { text: '已发货', color: 'blue' },
         };
         
-        // Handle dirty data
-        if (status && status.length > 20) return <Tag color="default">异常数据</Tag>;
         if (status === '54' || status === 'UNKNOWN') return <Tag color="default">未知</Tag>;
 
         const config = statusMap[status] || { text: status, color: 'default' };
@@ -326,11 +326,11 @@ const OrdersPage: React.FC = () => {
           'SHIPPED_PENDING_CONFIRMATION': { text: '已发货', color: 'blue' },
           'BOUGHT_OUT': { text: '已买断', color: 'green' },
           'OVERDUE': { text: '已逾期', color: 'red' },
-          'WAIT_PAY': { text: '待支付', color: 'processing' },
+          'WAIT_PAY': { text: '待支付', color: 'gold' },
+          'PENDING_REVIEW': { text: '待审核', color: 'orange' },
+          'SHIPPED_PENDING_CONFIRMATION': { text: '已发货', color: 'blue' },
         };
         
-        // Handle dirty data
-        if (status && status.length > 20) return <Tag color="default">异常数据</Tag>;
         if (status === '54' || status === 'UNKNOWN') return <Tag color="default">未知</Tag>;
 
         const config = statusMap[status] || { text: status, color: 'default' };
