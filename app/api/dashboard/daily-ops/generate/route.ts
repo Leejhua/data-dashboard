@@ -55,10 +55,10 @@ export async function POST() {
       appendMetric(target, platform, item.totalAmount || 0);
     });
 
-    const currentControllable = { gmv: 0, orders: 0 };
-    const previousControllable = { gmv: 0, orders: 0 };
-    const currentAll = { gmv: 0, orders: 0 };
-    const previousAll = { gmv: 0, orders: 0 };
+    const currentControllable = { gmv: 0, orders: 0, aov: 0 };
+    const previousControllable = { gmv: 0, orders: 0, aov: 0 };
+    const currentAll = { gmv: 0, orders: 0, aov: 0 };
+    const previousAll = { gmv: 0, orders: 0, aov: 0 };
 
     for (const [platform, data] of currentByPlatform) {
       currentAll.gmv += data.gmv;
