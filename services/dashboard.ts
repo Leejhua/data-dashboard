@@ -50,9 +50,9 @@ type DailyOpsLlmStatus = {
  */
 export class DashboardService {
   public static readonly VALID_STATUSES = ['COMPLETED', 'PENDING_SHIPMENT', 'RENTING', 'RETURNING', 'PENDING_RECEIPT', 'BOUGHT_OUT', 'SHIPPED_PENDING_CONFIRMATION', 'WAIT_PAY', 'PENDING_REVIEW'];
-  private static readonly CONTROLLABLE_PLATFORMS = ['闲鱼', '支付宝小程序', '赞晨'];
+  public static readonly CONTROLLABLE_PLATFORMS = ['闲鱼', '支付宝小程序', '赞晨'];
+  public static readonly DAILY_OPS_MAX_CARDS = 8;
   private static readonly ZULIN_TREND_POINTS = 7;
-  private static readonly DAILY_OPS_MAX_CARDS = 8;
   static readonly CACHE_TAG_SUMMARY = 'dashboard-summary';
   static readonly CACHE_TAG_ZULIN_PANEL = 'dashboard-zulin-panel';
   static readonly CACHE_TAG_DAILY_OPS = 'dashboard-daily-ops-cards';
@@ -999,7 +999,7 @@ export class DashboardService {
     };
   }
 
-  private static async getZulinOpsSnapshot(currentStart: Date, previousStart: Date, now: Date) {
+  public static async getZulinOpsSnapshot(currentStart: Date, previousStart: Date, now: Date) {
     try {
       await prisma.$executeRawUnsafe(`
         CREATE TABLE IF NOT EXISTS zulin_daily_metrics (
@@ -1755,7 +1755,7 @@ export class DashboardService {
     { revalidate: 300, tags: [DashboardService.CACHE_TAG_DAILY_OPS] }
   );
 
-  private static normalizePlatform(platform: string | null | undefined, promotionChannel?: string | null) {
+  public static normalizePlatform(platform: string | null | undefined, promotionChannel?: string | null) {
     if (promotionChannel && promotionChannel.includes('支付宝小程序')) return '支付宝小程序';
     if (!platform) return '其他';
     const upper = platform.toUpperCase().trim();
