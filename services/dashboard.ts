@@ -56,6 +56,54 @@ export class DashboardService {
   static readonly CACHE_TAG_SUMMARY = 'dashboard-summary';
   static readonly CACHE_TAG_ZULIN_PANEL = 'dashboard-zulin-panel';
   static readonly CACHE_TAG_DAILY_OPS = 'dashboard-daily-ops-cards';
+
+  /**
+   * 获取每日运营卡片的缓存
+   * 如无缓存返回 null
+   */
+  static async getDailyOpsCardCache(date: string): Promise<{
+    cards: DailyOpsCard[];
+    model: string;
+    triggerSource: string;
+    generatedAt: Date;
+  } | null> {
+    const cache = await prisma.dailyOpsCardCache.findUnique({
+      where: { date },
+    });
+    if (!cache) return null;
+    return {
+      cards: JSON.parse(cache.cards) as DailyOpsCard[],
+      model: cache.model,
+      triggerSource: cache.triggerSource,
+      generatedAt: cache.generatedAt,
+    };
+  }
+
+  /**
+   * 保存每日运营卡片到缓存
+   */
+  static async saveDailyOpsCardCache(
+    date: string,
+    cards: DailyOpsCard[],
+    model: string,
+    triggerSource: string
+  ): Promise<void> {
+    await prisma.dailyOpsCardCache.upsert({
+      where: { date },
+      create: {
+        date,
+        cards: JSON.stringify(cards),
+        model,
+        triggerSource,
+      },
+      update: {
+        cards: JSON.stringify(cards),
+        model,
+        triggerSource,
+      },
+    });
+  }
+
   private static readonly ZULIN_ALERT_CONFIG_ID = 'default';
   private static readonly ZULIN_ALERT_DEFAULT: Omit<ZulinAlertConfig, 'updatedAt'> = {
     minManagedDays: 5,
@@ -1258,8 +1306,23 @@ export class DashboardService {
       };
     }
     console.info('[daily-ops-llm] attempt', { model, apiUrl });
+    console.info('[daily-ops-llm] request_body:', JSON.stringify({
+      model,
+      temperature: 0.2,
+      response_format: { type: 'json_object' },
+      messages: [
+        {
+          role: 'system',
+          content: '你是电商运营分析助手。基于输入数据生成卡片建议，输出必须是 JSON 对象，结构为 {"cards":[...]}，cards 最多 8 条。每条必须包含 id/title/level/tag/scope/insight/action/metric(unit/current/previous/changeRate)。level 仅 high|medium|low，tag 仅 可执行|观察项，scope 仅 controllable|all，metric.unit 仅 ¥|单|%。不要输出 markdown。',
+        },
+        {
+          role: 'user',
+          content: JSON.stringify(input).slice(0, 500) + '...(truncated)',
+        },
+      ],
+    }));
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000);
+    const timeout = setTimeout(() => controller.abort(), 60000);
     try {
       const response = await fetch(apiUrl, {
         method: 'POST',
@@ -1275,8 +1338,7 @@ export class DashboardService {
           messages: [
             {
               role: 'system',
-              content:
-                '你是电商运营分析助手。基于输入数据生成卡片建议，输出必须是 JSON 对象，结构为 {"cards":[...]}，cards 最多 8 条。每条必须包含 id/title/level/tag/scope/insight/action/metric(unit/current/previous/changeRate)。level 仅 high|medium|low，tag 仅 可执行|观察项，scope 仅 controllable|all，metric.unit 仅 ¥|单|%。不要输出 markdown。',
+              content: '你是电商运营分析助手。基于输入数据生成卡片建议，输出必须是 JSON 对象，结构为 {"cards":[...]}，cards 最多 8 条。每条必须包含 id/title/level/tag/scope/insight/action/metric(unit/current/previous/changeRate)。level 仅 high|medium|low，tag 仅 可执行|观察项，scope 仅 controllable|all，metric.unit 仅 ¥|单|%。不要输出 markdown。',
             },
             {
               role: 'user',
@@ -1286,15 +1348,29 @@ export class DashboardService {
         }),
       });
       console.info('[daily-ops-llm] response status:', response.status, 'ok:', response.ok);
+      console.info('[daily-ops-llm] response_headers:', [...response.headers.entries()].reduce((acc, [k, v]) => ({ ...acc, [k]: v }), {}));
       if (!response.ok) {
         console.info('[daily-ops-llm] failed: request_failed', { status: response.status });
+        const body = await response.text();
+        console.info('[daily-ops-llm] error_body:', body);
         return {
           cards: null,
           status: { enabled: true, attempted: true, used: false, reason: 'request_failed', model, triggeredAt },
         };
       }
-      const result = await response.json().catch(() => null) as
-        | { choices?: Array<{ message?: { content?: string } }> }
+      let rawBody: string;
+      try {
+        rawBody = await response.text();
+      } catch (bodyErr) {
+        console.info('[daily-ops-llm] failed: body_read_error', { error: String(bodyErr) });
+        return {
+          cards: null,
+          status: { enabled: true, attempted: true, used: false, reason: 'request_failed', model, triggeredAt },
+        };
+      }
+      console.info('[daily-ops-llm] response_body:', rawBody.slice(0, 1000));
+      const result = JSON.parse(rawBody) as
+        { choices?: Array<{ message?: { content?: string } }> }
         | null;
       const content = String(result?.choices?.[0]?.message?.content || '').trim();
       if (!content) {
@@ -1339,6 +1415,29 @@ export class DashboardService {
   static getDailyOpsCards = unstable_cache(
     async () => {
       const now = new Date();
+      const today = DashboardService.dateKey(now);
+
+      // 优先从数据库缓存读取
+      const dbCache = await DashboardService.getDailyOpsCardCache(today);
+      if (dbCache) {
+        return {
+          summary: null, // 缓存模式不返回 summary，前端需要另外获取
+          cards: dbCache.cards,
+          controllablePlatforms: DashboardService.CONTROLLABLE_PLATFORMS,
+          llm: {
+            enabled: true,
+            attempted: true,
+            used: true,
+            reason: 'success' as const,
+            model: dbCache.model,
+            triggeredAt: dbCache.generatedAt.toISOString(),
+          },
+          generatedAt: now.toISOString(),
+          fromCache: true,
+        };
+      }
+
+      // 无缓存，继续生成
       const currentStart = new Date(now);
       currentStart.setDate(now.getDate() - 7);
       currentStart.setHours(0, 0, 0, 0);
@@ -1641,6 +1740,16 @@ export class DashboardService {
         llm: llmResult.status,
         generatedAt: now.toISOString(),
       };
+
+      // 保存到数据库缓存
+      if (llmResult.status.used && finalCards.length > 0) {
+        await DashboardService.saveDailyOpsCardCache(
+          today,
+          finalCards,
+          llmResult.status.model,
+          'scheduled'
+        );
+      }
     },
     ['dashboard-daily-ops-cards'],
     { revalidate: 300, tags: [DashboardService.CACHE_TAG_DAILY_OPS] }

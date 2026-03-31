@@ -216,6 +216,17 @@ export async function POST(request: Request) {
     revalidateTag(tag, 'max');
   }
 
+  // 检查当天是否已有缓存，如无则触发生成
+  const existingCache = await prisma.dailyOpsCardCache.findUnique({
+    where: { date },
+  });
+  if (!existingCache && (inserted > 0 || updated > 0)) {
+    // 异步触发生成，不等待结果
+    fetch(new URL('/api/dashboard/daily-ops/generate', request.url).href, {
+      method: 'POST',
+    }).catch(() => {});
+  }
+
   return NextResponse.json(
     {
       batchId,

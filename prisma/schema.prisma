@@ -432,3 +432,15 @@ model ZulinAlertConfig {
 
   @@map("zulin_alert_config")
 }
+
+model DailyOpsCardCache {
+  id            String   @id @default(uuid())
+  date          String   // 日期 2026-03-31
+  cards         String   // JSON 存储生成的卡片
+  model         String   // 使用的模型
+  triggerSource String   // 触发来源: 'plugin' | 'manual' | 'scheduled'
+  generatedAt   DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([date])
+}
