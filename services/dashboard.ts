@@ -1259,7 +1259,7 @@ export class DashboardService {
     }
     console.info('[daily-ops-llm] attempt', { model, apiUrl });
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 12000);
+    const timeout = setTimeout(() => controller.abort(), 30000);
     try {
       const response = await fetch(apiUrl, {
         method: 'POST',
@@ -1285,6 +1285,7 @@ export class DashboardService {
           ],
         }),
       });
+      console.info('[daily-ops-llm] response status:', response.status, 'ok:', response.ok);
       if (!response.ok) {
         console.info('[daily-ops-llm] failed: request_failed', { status: response.status });
         return {
