@@ -1265,7 +1265,7 @@ export class DashboardService {
     return cards.length ? cards.slice(0, DashboardService.DAILY_OPS_MAX_CARDS) : null;
   }
 
-  private static async generateDailyOpsCardsWithLlm(input: {
+  public static async generateDailyOpsCardsWithLlm(input: {
     now: string;
     summary: {
       currentAll: { gmv: number; orders: number; aov: number };

@@ -92,7 +92,7 @@ export async function POST() {
       return ((curr - prev) / prev) * 100;
     };
 
-    const zulinSnapshot = await DashboardService.getZulinOpsSnapshot();
+    const zulinSnapshot = await DashboardService.getZulinOpsSnapshot(currentStart, previousStart, now);
 
     const fallbackCards: Array<{
       id: string;
@@ -102,7 +102,10 @@ export async function POST() {
       scope: 'controllable' | 'all';
       insight: string;
       action: string;
+      metric: { unit: '¥' | '单' | '%'; current: number; previous: number; changeRate: number };
     }> = [];
+
+    const controllableGmvGrowth = growth(currentControllable.gmv, previousControllable.gmv);
 
     if (currentControllable.gmv < previousControllable.gmv * 0.5 && previousControllable.gmv > 0) {
       fallbackCards.push({
@@ -111,8 +114,9 @@ export async function POST() {
         level: 'high',
         tag: '可执行',
         scope: 'controllable',
-        insight: `近7天可控渠道 GMV 环比 ${growth(currentControllable.gmv, previousControllable.gmv).toFixed(1)}%`,
+        insight: `近7天可控渠道 GMV 环比 ${controllableGmvGrowth.toFixed(1)}%`,
         action: '优先检查闲鱼',
+        metric: { unit: '¥', current: currentControllable.gmv, previous: previousControllable.gmv, changeRate: controllableGmvGrowth },
       });
     }
 
@@ -125,6 +129,7 @@ export async function POST() {
         scope: 'all',
         insight: `当前可控渠道 GMV 占比 ${currentShare.toFixed(1)}%，较上期 ${shareChange >= 0 ? '+' : ''}${shareChange.toFixed(1)}pct`,
         action: '将可控渠道占比作为周目标，稳定提升可控盘在全盘中的权重',
+        metric: { unit: '%', current: currentShare, previous: previousShare, changeRate: shareChange },
       });
     }
 
