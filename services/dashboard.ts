@@ -67,16 +67,40 @@ export class DashboardService {
     triggerSource: string;
     generatedAt: Date;
   } | null> {
-    const cache = await prisma.dailyOpsCardCache.findUnique({
-      where: { date },
-    });
-    if (!cache) return null;
-    return {
-      cards: JSON.parse(cache.cards) as DailyOpsCard[],
-      model: cache.model,
-      triggerSource: cache.triggerSource,
-      generatedAt: cache.generatedAt,
-    };
+    try {
+      const cache = await prisma.dailyOpsCardCache.findUnique({
+        where: { date },
+      });
+      if (!cache) return null;
+      return {
+        cards: JSON.parse(cache.cards) as DailyOpsCard[],
+        model: cache.model,
+        triggerSource: cache.triggerSource,
+        generatedAt: cache.generatedAt,
+      };
+    } catch (error: unknown) {
+      const err = error as { code?: string; meta?: { table_name?: string } };
+      if (err.code === 'P2021' || err.code === 'P2022') {
+        // 表不存在，尝试创建
+        await DashboardService.ensureDailyOpsCardCacheTable();
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  private static async ensureDailyOpsCardCacheTable() {
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "DailyOpsCardCache" (
+        id TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
+        date TEXT NOT NULL UNIQUE,
+        cards TEXT NOT NULL,
+        model TEXT NOT NULL,
+        "triggerSource" TEXT NOT NULL,
+        "generatedAt" TIMESTAMP NOT NULL DEFAULT NOW(),
+        "updatedAt" TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
   }
 
   /**
@@ -88,20 +112,43 @@ export class DashboardService {
     model: string,
     triggerSource: string
   ): Promise<void> {
-    await prisma.dailyOpsCardCache.upsert({
-      where: { date },
-      create: {
-        date,
-        cards: JSON.stringify(cards),
-        model,
-        triggerSource,
-      },
-      update: {
-        cards: JSON.stringify(cards),
-        model,
-        triggerSource,
-      },
-    });
+    try {
+      await prisma.dailyOpsCardCache.upsert({
+        where: { date },
+        create: {
+          date,
+          cards: JSON.stringify(cards),
+          model,
+          triggerSource,
+        },
+        update: {
+          cards: JSON.stringify(cards),
+          model,
+          triggerSource,
+        },
+      });
+    } catch (error: unknown) {
+      const err = error as { code?: string; meta?: { table_name?: string } };
+      if (err.code === 'P2021' || err.code === 'P2022') {
+        await DashboardService.ensureDailyOpsCardCacheTable();
+        await prisma.dailyOpsCardCache.upsert({
+          where: { date },
+          create: {
+            date,
+            cards: JSON.stringify(cards),
+            model,
+            triggerSource,
+          },
+          update: {
+            cards: JSON.stringify(cards),
+            model,
+            triggerSource,
+          },
+        });
+        return;
+      }
+      throw error;
+    }
   }
 
   private static readonly ZULIN_ALERT_CONFIG_ID = 'default';
