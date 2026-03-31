@@ -197,8 +197,6 @@ const OrdersPage: React.FC = () => {
           'BOUGHT_OUT': { text: '已买断', color: 'green' },
           'OVERDUE': { text: '已逾期', color: 'red' },
           'WAIT_PAY': { text: '待支付', color: 'gold' },
-          'PENDING_REVIEW': { text: '待审核', color: 'orange' },
-          'SHIPPED_PENDING_CONFIRMATION': { text: '已发货', color: 'blue' },
         };
         
         if (status === '54' || status === 'UNKNOWN') return <Tag color="default">未知</Tag>;
@@ -327,8 +325,6 @@ const OrdersPage: React.FC = () => {
           'BOUGHT_OUT': { text: '已买断', color: 'green' },
           'OVERDUE': { text: '已逾期', color: 'red' },
           'WAIT_PAY': { text: '待支付', color: 'gold' },
-          'PENDING_REVIEW': { text: '待审核', color: 'orange' },
-          'SHIPPED_PENDING_CONFIRMATION': { text: '已发货', color: 'blue' },
         };
         
         if (status === '54' || status === 'UNKNOWN') return <Tag color="default">未知</Tag>;
