@@ -130,6 +130,7 @@ export class DashboardService {
     model: string,
     triggerSource: string
   ): Promise<void> {
+    console.info('[saveDailyOpsCardCache] 开始保存', { date, cardsCount: cards.length, model, triggerSource });
     try {
       await prisma.dailyOpsCardCache.upsert({
         where: { date },
@@ -2071,12 +2072,14 @@ export class DashboardService {
 
       // 保存到数据库缓存
       if (llmResult.status.used && finalCards.length > 0) {
+        console.info('[daily-ops-cache] 准备保存缓存', { date: today, cardsCount: finalCards.length, model: llmResult.status.model });
         await DashboardService.saveDailyOpsCardCache(
           today,
           finalCards,
           llmResult.status.model,
           'scheduled'
         );
+        console.info('[daily-ops-cache] 缓存已保存', { date: today });
       }
     },
     ['dashboard-daily-ops-cards'],
