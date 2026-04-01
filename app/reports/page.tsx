@@ -81,11 +81,15 @@ interface ReportData {
     summary?: {
       self?: { gmv: number };
       third?: { gmv: number };
+      prevSelf?: { gmv: number };
+      prevThird?: { gmv: number };
     };
     trend?: {
       dates: string[];
       self: number[];
       third: number[];
+      prevSelf: number[];
+      prevThird: number[];
     };
   };
   platforms?: PlatformRow[];
