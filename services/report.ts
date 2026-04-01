@@ -69,6 +69,7 @@ export class ReportService {
     }
 
     startDate.setHours(0, 0, 0, 0);
+    endDate.setHours(0, 0, 0, 0);
     const duration = endDate.getTime() - startDate.getTime();
     const prevEndDate = new Date(startDate);
     const prevStartDate = new Date(prevEndDate.getTime() - duration);
@@ -443,11 +444,9 @@ export class ReportService {
         }
       }
 
-      // 同期数据 - 使用修正逻辑：将原始订单日期映射到对应的同期日期
+      // 同期数据 - 使用原始订单日期作为key
       if (prevStart && prevEnd && ReportService.inRange(item.createdAt, prevStart, prevEnd)) {
-        const daysDiff = Math.floor((item.createdAt.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
-        const prevDate = new Date(start.getTime() + daysDiff * 24 * 60 * 60 * 1000);
-        const dateStr = ReportService.dateKey(prevDate);
+        const dateStr = ReportService.dateKey(item.createdAt);
         if (isSelf) {
           summary.prevSelf.gmv += gmv;
           summary.prevSelf.count += 1;
@@ -646,10 +645,8 @@ export class ReportService {
         currentMap[dateStr] = (currentMap[dateStr] || 0) + gmv;
       }
       if (ReportService.inRange(item.createdAt, prevStart, prevEnd)) {
-        // 计算对应的同期日期：当期日期 - duration
-        const daysDiff = Math.floor((item.createdAt.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
-        const prevDate = new Date(start.getTime() + daysDiff * 24 * 60 * 60 * 1000);
-        const prevDateStr = ReportService.dateKey(prevDate);
+        // 直接使用原始订单日期作为key（旧逻辑）
+        const prevDateStr = ReportService.dateKey(item.createdAt);
         prevMap[prevDateStr] = (prevMap[prevDateStr] || 0) + gmv;
       }
     }
