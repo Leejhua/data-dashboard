@@ -394,6 +394,7 @@ export class ReportService {
   }
 
   private static fetchChannelAnalysis(validOrders: ValidOrderLite[], start: Date, end: Date, prevStart?: Date, prevEnd?: Date) {
+    const duration = end.getTime() - start.getTime();
     const summary = {
       self: { gmv: 0, count: 0 },
       third: { gmv: 0, count: 0 },
@@ -442,9 +443,11 @@ export class ReportService {
         }
       }
 
-      // 同期数据
+      // 同期数据 - 使用修正逻辑：将原始订单日期映射到对应的同期日期
       if (prevStart && prevEnd && ReportService.inRange(item.createdAt, prevStart, prevEnd)) {
-        const dateStr = ReportService.dateKey(item.createdAt);
+        const daysDiff = Math.floor((item.createdAt.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+        const prevDate = new Date(start.getTime() + daysDiff * 24 * 60 * 60 * 1000);
+        const dateStr = ReportService.dateKey(prevDate);
         if (isSelf) {
           summary.prevSelf.gmv += gmv;
           summary.prevSelf.count += 1;

@@ -48,16 +48,16 @@ async function main() {
 
   // 4. Create Orders (Distributed over last 10 days)
   const today = new Date()
-  
+
   // Create 50 orders
   for (let i = 0; i < 50; i++) {
     const daysAgo = i % 10 // 0 to 9 days ago
     const orderDate = new Date(today)
     orderDate.setDate(today.getDate() - daysAgo)
-    
+
     // Random promoter
     const promoter = promoters[i % promoters.length]
-    
+
     // Random amount (100 - 1000)
     const amount = Math.floor(Math.random() * 900) + 100
 
@@ -67,27 +67,27 @@ async function main() {
         source: 'MANUAL',
         platform: 'Douyin',
         status: i % 5 === 0 ? 'REFUNDED' : 'COMPLETED', // 20% refund rate
-        
+
         // Required fields
         customerXianyuId: `user_${i}`,
         sourceContact: `contact_${i}`,
         productName: 'Test Product',
         variantName: 'Standard',
-        
+
         duration: 7,
         rentPrice: amount * 0.8,
         deposit: 0,
         insurancePrice: amount * 0.2,
         totalAmount: amount,
-        
+
         address: 'Test Address',
-        
+
         promoterId: promoter.id,
         channelId: channelConfig.id,
-        
+
         creatorId: 'admin',
         creatorName: 'Admin',
-        
+
         createdAt: orderDate,
         updatedAt: orderDate,
       },
