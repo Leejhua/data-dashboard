@@ -631,6 +631,7 @@ export class ReportService {
     prevEnd: Date,
     scope: ReportScope
   ) {
+    const duration = end.getTime() - start.getTime();
     const currentMap: Record<string, number> = {};
     const prevMap: Record<string, number> = {};
 
