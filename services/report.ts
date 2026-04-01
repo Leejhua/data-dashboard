@@ -408,22 +408,19 @@ export class ReportService {
     const iterDate = new Date(start);
     iterDate.setHours(0, 0, 0, 0);
 
+    // 初始化当期和同期的数据结构，使用相同的日期范围
     while (iterDate < end) {
       const dateStr = ReportService.dateKey(iterDate);
       dailyData[dateStr] = { self: 0, third: 0 };
+      prevDailyData[dateStr] = { self: 0, third: 0 };
       iterDate.setDate(iterDate.getDate() + 1);
     }
 
-    // 同期数据初始化
-    if (prevStart && prevEnd) {
-      const iterPrevDate = new Date(prevStart);
-      iterPrevDate.setHours(0, 0, 0, 0);
-      while (iterPrevDate < prevEnd) {
-        const dateStr = ReportService.dateKey(iterPrevDate);
-        prevDailyData[dateStr] = { self: 0, third: 0 };
-        iterPrevDate.setDate(iterPrevDate.getDate() + 1);
-      }
-    }
+    // 旧代码：只初始化 prevStart 到 prevEnd 的范围 - 删除
+    // if (prevStart && prevEnd) {
+    //   const iterPrevDate = new Date(prevStart);
+    //   ...
+    // }
 
     for (const item of validOrders) {
       const name = ReportService.normalizePlatform(item.platform, item.promotionChannel);
@@ -658,10 +655,6 @@ export class ReportService {
     const iterDate = new Date(start);
     iterDate.setHours(0, 0, 0, 0);
 
-    console.log('[DEBUG fetchTrendData] start:', start.toISOString(), 'end:', end.toISOString());
-    console.log('[DEBUG fetchTrendData] currentMap keys:', Object.keys(currentMap));
-    console.log('[DEBUG fetchTrendData] prevMap keys:', Object.keys(prevMap));
-
     // 遍历当期日期范围，生成对应的同期日期
     while (iterDate < end) {
       const dateStr = ReportService.dateKey(iterDate);
@@ -670,14 +663,9 @@ export class ReportService {
       const prevDate = new Date(iterDate.getTime() - duration);
       const prevDateStr = ReportService.dateKey(prevDate);
 
-      const currentVal = currentMap[dateStr] || 0;
-      const prevVal = prevMap[prevDateStr] || 0;
-
-      console.log('[DEBUG fetchTrendData]', dateStr, '-> current:', currentVal, 'prev:', prevVal, 'from key:', prevDateStr);
-
       dates.push(dateStr);
-      currentSeries.push(Number(currentVal.toFixed(2)));
-      prevSeries.push(Number(prevVal.toFixed(2)));
+      currentSeries.push(Number((currentMap[dateStr] || 0).toFixed(2)));
+      prevSeries.push(Number((prevMap[prevDateStr] || 0).toFixed(2)));
 
       iterDate.setDate(iterDate.getDate() + 1);
     }
