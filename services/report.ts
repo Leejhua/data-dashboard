@@ -105,7 +105,7 @@ export class ReportService {
     const prevData = ReportService.fetchPeriodData(allOrders, validOrders, prevStartDate, prevEndDate, scope);
     const platformData = ReportService.fetchPlatformData(validOrders, startDate, endDate, scope);
     const productData = await ReportService.fetchDeviceData(validOrders, startDate, endDate, scope);
-    const channelAnalysis = scope === 'all' ? ReportService.fetchChannelAnalysis(validOrders, startDate, endDate) : null;
+    const channelAnalysis = scope === 'all' ? ReportService.fetchChannelAnalysis(validOrders, startDate, endDate, prevStartDate, prevEndDate) : null;
     const trendData = ReportService.fetchTrendData(validOrders, startDate, endDate, prevStartDate, prevEndDate, scope);
     const zulinData = await (async () => {
       if (scope !== 'self') {
@@ -393,13 +393,16 @@ export class ReportService {
       .map((index) => rows[index]);
   }
 
-  private static fetchChannelAnalysis(validOrders: ValidOrderLite[], start: Date, end: Date) {
+  private static fetchChannelAnalysis(validOrders: ValidOrderLite[], start: Date, end: Date, prevStart?: Date, prevEnd?: Date) {
     const summary = {
       self: { gmv: 0, count: 0 },
-      third: { gmv: 0, count: 0 }
+      third: { gmv: 0, count: 0 },
+      prevSelf: { gmv: 0, count: 0 },
+      prevThird: { gmv: 0, count: 0 }
     };
 
     const dailyData: Record<string, { self: number, third: number }> = {};
+    const prevDailyData: Record<string, { self: number, third: number }> = {};
     const iterDate = new Date(start);
     iterDate.setHours(0, 0, 0, 0);
 
@@ -409,27 +412,54 @@ export class ReportService {
       iterDate.setDate(iterDate.getDate() + 1);
     }
 
+    // 同期数据初始化
+    if (prevStart && prevEnd) {
+      const iterPrevDate = new Date(prevStart);
+      iterPrevDate.setHours(0, 0, 0, 0);
+      while (iterPrevDate < prevEnd) {
+        const dateStr = ReportService.dateKey(iterPrevDate);
+        prevDailyData[dateStr] = { self: 0, third: 0 };
+        iterPrevDate.setDate(iterPrevDate.getDate() + 1);
+      }
+    }
+
     for (const item of validOrders) {
-      if (!ReportService.inRange(item.createdAt, start, end)) continue;
       const name = ReportService.normalizePlatform(item.platform, item.promotionChannel);
       const isSelf = ReportService.SELF_PLATFORMS.includes(name);
       const gmv = item.totalAmount || 0;
-      const dateStr = ReportService.dateKey(item.createdAt);
 
-      if (isSelf) {
-        summary.self.gmv += gmv;
-        summary.self.count += 1;
-        if (dailyData[dateStr]) dailyData[dateStr].self += gmv;
-      } else {
-        summary.third.gmv += gmv;
-        summary.third.count += 1;
-        if (dailyData[dateStr]) dailyData[dateStr].third += gmv;
+      // 当期数据
+      if (ReportService.inRange(item.createdAt, start, end)) {
+        const dateStr = ReportService.dateKey(item.createdAt);
+        if (isSelf) {
+          summary.self.gmv += gmv;
+          summary.self.count += 1;
+          if (dailyData[dateStr]) dailyData[dateStr].self += gmv;
+        } else {
+          summary.third.gmv += gmv;
+          summary.third.count += 1;
+          if (dailyData[dateStr]) dailyData[dateStr].third += gmv;
+        }
+      }
+
+      // 同期数据
+      if (prevStart && prevEnd && ReportService.inRange(item.createdAt, prevStart, prevEnd)) {
+        const dateStr = ReportService.dateKey(item.createdAt);
+        if (isSelf) {
+          summary.prevSelf.gmv += gmv;
+          summary.prevSelf.count += 1;
+          if (prevDailyData[dateStr]) prevDailyData[dateStr].self += gmv;
+        } else {
+          summary.prevThird.gmv += gmv;
+          summary.prevThird.count += 1;
+          if (prevDailyData[dateStr]) prevDailyData[dateStr].third += gmv;
+        }
       }
     }
 
     const totalGmv = summary.self.gmv + summary.third.gmv;
     const orderedDates = Object.keys(dailyData).sort();
-    
+
     return {
       summary: {
         ...summary,
@@ -439,7 +469,9 @@ export class ReportService {
       trend: {
         dates: orderedDates,
         self: orderedDates.map(d => Number((dailyData[d].self || 0).toFixed(2))),
-        third: orderedDates.map(d => Number((dailyData[d].third || 0).toFixed(2)))
+        third: orderedDates.map(d => Number((dailyData[d].third || 0).toFixed(2))),
+        prevSelf: orderedDates.map(d => Number((prevDailyData[d]?.self || 0).toFixed(2))),
+        prevThird: orderedDates.map(d => Number((prevDailyData[d]?.third || 0).toFixed(2)))
       }
     };
   }
@@ -482,7 +514,8 @@ export class ReportService {
       orderCount,
       totalOrders: totalOrdersCount,
       refundCount,
-      refundRate: totalOrdersCount > 0 ? (refundCount / totalOrdersCount) * 100 : 0
+      // 成交率 = 有效订单数 / 总订单数
+      refundRate: totalOrdersCount > 0 ? (orderCount / totalOrdersCount) * 100 : 0
     };
   }
 

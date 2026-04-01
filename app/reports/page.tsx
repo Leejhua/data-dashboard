@@ -187,7 +187,7 @@ const ReportsPage: React.FC = () => {
     const numericValue = toNumber(value);
     const isPositive = numericValue >= 0;
     return (
-      <span style={{ color: isPositive ? '#3f8600' : '#cf1322', fontSize: 14 }}>
+      <span style={{ color: isPositive ? '#cf1322' : '#3f8600', fontSize: 14 }}>
         {isPositive ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
         {Math.abs(numericValue).toFixed(2)}%
       </span>
@@ -482,19 +482,19 @@ const ReportsPage: React.FC = () => {
           </Col>
           <Col span={6} style={{ display: 'flex' }}>
             <Card loading={loading} style={{ width: '100%' }} styles={{ body: { minHeight: 132 } }}>
-              <Statistic 
+              <Statistic
                 title={
                     <Space>
-                        退款/取消率
-                        <Tooltip title="包括已关闭(CLOSED)和归还中(RETURNING)的订单">
+                        成交率
+                        <Tooltip title="有效订单数 / 总订单数（排除已关闭和归还中）">
                             <InfoCircleOutlined style={{ fontSize: 14, color: '#999' }} />
                         </Tooltip>
                     </Space>
-                } 
-                value={data?.summary?.refundRate} 
-                precision={2} 
+                }
+                value={data?.summary?.refundRate}
+                precision={2}
                 suffix="%"
-                style={{ color: toNumber(data?.summary?.refundRate) > 10 ? '#cf1322' : '#3f8600' }}
+                style={{ color: toNumber(data?.summary?.refundRate) >= 50 ? '#cf1322' : '#3f8600' }}
               />
               <div style={{ fontSize: 12, color: '#999', marginTop: 8 }}>
                 上期: {toNumber(data?.summary?.prevRefundRate).toFixed(2)}%
@@ -548,7 +548,7 @@ const ReportsPage: React.FC = () => {
                 suffix={
                   <span>
                     %{' '}
-                    <span style={{ fontSize: 12, color: toNumber(data?.zulin?.summary?.conversionDiff) >= 0 ? '#3f8600' : '#cf1322' }}>
+                    <span style={{ fontSize: 12, color: toNumber(data?.zulin?.summary?.conversionDiff) >= 0 ? '#cf1322' : '#3f8600' }}>
                       {toNumber(data?.zulin?.summary?.conversionDiff) >= 0 ? '+' : ''}
                       {toNumber(data?.zulin?.summary?.conversionDiff).toFixed(2)}pct
                     </span>
@@ -621,12 +621,12 @@ const ReportsPage: React.FC = () => {
                   />
                </Col>
                <Col span={16}>
-                  <ReactECharts 
+                  <ReactECharts
                     option={{
-                      title: { text: '每日 GMV 贡献趋势', left: 'center' },
+                      title: { text: '大盘数据', left: 'center' },
                       tooltip: { trigger: 'axis' },
                       legend: { bottom: 0 },
-                      grid: { left: '3%', right: '4%', bottom: '10%', containLabel: true },
+                      grid: { left: '3%', right: '4%', bottom: '15%', containLabel: true },
                       xAxis: { type: 'category', boundaryGap: false, data: data?.channelAnalysis?.trend?.dates || [] },
                       yAxis: { type: 'value' },
                       series: [
@@ -645,6 +645,20 @@ const ReportsPage: React.FC = () => {
                           areaStyle: {},
                           emphasis: { focus: 'series' },
                           data: data?.channelAnalysis?.trend?.third || []
+                        },
+                        {
+                          name: '自有渠道同期',
+                          type: 'line',
+                          lineStyle: { type: 'dashed' },
+                          emphasis: { focus: 'series' },
+                          data: data?.channelAnalysis?.trend?.prevSelf || []
+                        },
+                        {
+                          name: '三方渠道同期',
+                          type: 'line',
+                          lineStyle: { type: 'dashed' },
+                          emphasis: { focus: 'series' },
+                          data: data?.channelAnalysis?.trend?.prevThird || []
                         }
                       ]
                     }}
@@ -655,33 +669,47 @@ const ReportsPage: React.FC = () => {
           </Card>
         )}
 
+        {scope === 'all' && (
         <Row gutter={24}>
           {/* Platform Performance */}
           <Col span={12}>
             <Card title="各平台表现" loading={loading}>
-               <Table 
-                 columns={platformColumns} 
-                 dataSource={data?.platforms || []} 
-                 rowKey="platform" 
+               <Table
+                 columns={platformColumns}
+                 dataSource={data?.platforms || []}
+                 rowKey="platform"
                  pagination={false}
                  size="small"
                />
             </Card>
           </Col>
-          
+
           {/* Device Ranking */}
           <Col span={12}>
             <Card title="热销设备 Top 10" loading={loading}>
-               <Table 
-                 columns={deviceColumns} 
-                 dataSource={data?.devices || data?.products || []} 
-                 rowKey="deviceName" 
+               <Table
+                 columns={deviceColumns}
+                 dataSource={data?.devices || data?.products || []}
+                 rowKey="deviceName"
                  pagination={false}
                  size="small"
                />
             </Card>
           </Col>
         </Row>
+        )}
+
+        {scope === 'self' && (
+        <Card title="热销设备 Top 10" style={{ marginBottom: 24 }} loading={loading}>
+           <Table
+             columns={deviceColumns}
+             dataSource={data?.devices || data?.products || []}
+             rowKey="deviceName"
+             pagination={false}
+             size="small"
+           />
+        </Card>
+        )}
       </div>
     </MainLayout>
   );

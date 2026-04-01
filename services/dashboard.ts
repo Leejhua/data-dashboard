@@ -441,6 +441,10 @@ export class DashboardService {
           UNIQUE(data_date, product_id)
         )
       `);
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      const thirtyDaysAgoStr = DashboardService.dateKey(thirtyDaysAgo);
+
       const rows = await prisma.$queryRaw<{
         data_date: string;
         product_id: string;
@@ -459,6 +463,7 @@ export class DashboardService {
           COALESCE(amount, 0) AS amount,
           COALESCE(managed_days, 0) AS managed_days
         FROM zulin_daily_metrics
+        WHERE data_date >= ${thirtyDaysAgoStr}
         ORDER BY product_id ASC, data_date ASC
       `;
 
