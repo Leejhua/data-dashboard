@@ -635,48 +635,51 @@ export class ReportService {
     const prevMap: Record<string, number> = {};
 
     for (const item of validOrders) {
-      const dateStr = ReportService.dateKey(item.createdAt);
       const gmv = item.totalAmount || 0;
       if (!ReportService.inScope(item.platform, item.promotionChannel, scope)) continue;
       if (ReportService.inRange(item.createdAt, start, end)) {
+        const dateStr = ReportService.dateKey(item.createdAt);
         currentMap[dateStr] = (currentMap[dateStr] || 0) + gmv;
       }
       if (ReportService.inRange(item.createdAt, prevStart, prevEnd)) {
-        prevMap[dateStr] = (prevMap[dateStr] || 0) + gmv;
+        // 计算对应的同期日期：当期日期 - duration
+        const daysDiff = Math.floor((item.createdAt.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+        const prevDate = new Date(start.getTime() + daysDiff * 24 * 60 * 60 * 1000);
+        const prevDateStr = ReportService.dateKey(prevDate);
+        prevMap[prevDateStr] = (prevMap[prevDateStr] || 0) + gmv;
       }
     }
 
     const dates: string[] = [];
     const currentSeries: number[] = [];
     const prevSeries: number[] = [];
-    const currentDates: string[] = [];
-    const prevDates: string[] = [];
-    
+
     const iterDate = new Date(start);
     iterDate.setHours(0, 0, 0, 0);
-    
-    const iterPrevDate = new Date(prevStart);
-    iterPrevDate.setHours(0, 0, 0, 0);
 
+    // 遍历当期日期范围，生成对应的同期日期
     while (iterDate < end) {
       const dateStr = ReportService.dateKey(iterDate);
-      const prevDateStr = ReportService.dateKey(iterPrevDate);
-      
+
+      // 同期日期 = 当期日期 - duration
+      const prevDate = new Date(iterDate.getTime() - duration);
+      const prevDateStr = ReportService.dateKey(prevDate);
+
       dates.push(dateStr);
-      currentDates.push(dateStr);
-      prevDates.push(prevDateStr);
-      
       currentSeries.push(Number((currentMap[dateStr] || 0).toFixed(2)));
       prevSeries.push(Number((prevMap[prevDateStr] || 0).toFixed(2)));
-      
+
       iterDate.setDate(iterDate.getDate() + 1);
-      iterPrevDate.setDate(iterPrevDate.getDate() + 1);
     }
 
     return {
       dates,
-      currentDates,
-      prevDates,
+      currentDates: dates,
+      prevDates: dates.map(d => {
+        const dt = new Date(d + 'T00:00:00');
+        const pd = new Date(dt.getTime() - duration);
+        return ReportService.dateKey(pd);
+      }),
       current: currentSeries,
       previous: prevSeries
     };

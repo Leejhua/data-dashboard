@@ -107,7 +107,6 @@ const OverviewPage: React.FC = () => {
     return [
       { title: '累计 GMV', value: toNumber(summary?.totalGMV), prefix: '¥', precision: 2 },
       { title: '累计订单数', value: toNumber(summary?.totalOrders), suffix: '单', precision: 0 },
-      { title: '活跃推广员', value: toNumber(summary?.activePromoters), suffix: '人', precision: 0 },
       { title: '近30天 GMV', value: recentGmv, prefix: '¥', precision: 2 },
       { title: '近30天订单', value: recentOrders, suffix: '单', precision: 0 },
       { title: '近30天客单价', value: recentAov, prefix: '¥', precision: 2 },

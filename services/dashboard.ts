@@ -70,7 +70,7 @@ export class DashboardService {
   public static readonly VALID_STATUSES = ['COMPLETED', 'PENDING_SHIPMENT', 'RENTING', 'RETURNING', 'PENDING_RECEIPT', 'BOUGHT_OUT', 'SHIPPED_PENDING_CONFIRMATION', 'WAIT_PAY', 'PENDING_REVIEW'];
   public static readonly CONTROLLABLE_PLATFORMS = ['闲鱼', '支付宝小程序', '赞晨'];
   public static readonly DAILY_OPS_MAX_CARDS = 8;
-  private static readonly ZULIN_TREND_POINTS = 7;
+  private static readonly ZULIN_TREND_POINTS = 500;
   static readonly CACHE_TAG_SUMMARY = 'dashboard-summary';
   static readonly CACHE_TAG_ZULIN_PANEL = 'dashboard-zulin-panel';
   static readonly CACHE_TAG_DAILY_OPS = 'dashboard-daily-ops-cards';
