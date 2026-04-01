@@ -441,9 +441,13 @@ export class ReportService {
         }
       }
 
-      // 同期数据 - 使用原始订单日期作为key
+      // 同期数据 - 映射到对应的当期日期
       if (prevStart && prevEnd && ReportService.inRange(item.createdAt, prevStart, prevEnd)) {
-        const dateStr = ReportService.dateKey(item.createdAt);
+        // 计算该订单在同期中的天数偏移
+        const daysFromPrevStart = Math.floor((item.createdAt.getTime() - prevStart.getTime()) / (1000 * 60 * 60 * 24));
+        // 映射到对应的当期日期
+        const targetDate = new Date(start.getTime() + daysFromPrevStart * 24 * 60 * 60 * 1000);
+        const dateStr = ReportService.dateKey(targetDate);
         if (isSelf) {
           summary.prevSelf.gmv += gmv;
           summary.prevSelf.count += 1;
