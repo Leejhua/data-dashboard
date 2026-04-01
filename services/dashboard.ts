@@ -35,6 +35,24 @@ type DailyOpsCard = {
   };
 };
 
+type DimensionAnalysisResult = {
+  dimension: string;
+  status: 'normal' | 'warning' | 'critical';
+  changeRate: number;
+  insight: string;
+  shouldAlert: boolean;
+  current?: number;
+  previous?: number;
+};
+
+type DimensionConfig = {
+  name: string;
+  threshold: number;
+  getCurrent: () => number;
+  getPrevious: () => number;
+  format: '¥' | '单' | '%';
+};
+
 type DailyOpsLlmStatus = {
   enabled: boolean;
   attempted: boolean;
@@ -1312,6 +1330,345 @@ export class DashboardService {
     return cards.length ? cards.slice(0, DashboardService.DAILY_OPS_MAX_CARDS) : null;
   }
 
+  // ========== 两阶段 LLM 分析 ==========
+
+  /**
+   * 单个维度分析（第一阶段）
+   */
+  private static async analyzeSingleDimension(
+    dimension: string,
+    current: number,
+    previous: number,
+    threshold: number,
+    format: '¥' | '单' | '%',
+    apiUrl: string,
+    apiKey: string,
+    model: string
+  ): Promise<DimensionAnalysisResult> {
+    const changeRate = previous !== 0 ? ((current - previous) / previous) * 100 : (current > 0 ? 100 : 0);
+    const absChange = Math.abs(changeRate);
+    let status: 'normal' | 'warning' | 'critical' = 'normal';
+    let shouldAlert = false;
+
+    if (absChange >= threshold * 1.5) {
+      status = 'critical';
+      shouldAlert = true;
+    } else if (absChange >= threshold) {
+      status = 'warning';
+      shouldAlert = true;
+    }
+
+    const direction = changeRate > 0 ? '增长' : changeRate < 0 ? '下滑' : '持平';
+    const basicInsight = `近7天${dimension}${direction}${absChange.toFixed(1)}%`;
+
+    // 如果状态正常，直接返回，不调用 LLM
+    if (status === 'normal') {
+      return {
+        dimension,
+        status: 'normal',
+        changeRate,
+        insight: basicInsight,
+        shouldAlert: false,
+        current,
+        previous,
+      };
+    }
+
+    // 调用 LLM 进行深度分析
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+
+    try {
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model,
+          temperature: 0.2,
+          response_format: { type: 'json_object' },
+          messages: [
+            {
+              role: 'system',
+              content: '你是电商运营维度分析师。根据提供的维度数据，分析异常原因，给出简短的洞察描述（50字以内）。输出必须是 JSON 对象：{"insight": "xxx"}。',
+            },
+            {
+              role: 'user',
+              content: JSON.stringify({
+                dimension,
+                current,
+                previous,
+                changeRate: changeRate.toFixed(1),
+                threshold,
+                format,
+                unit: format === '¥' ? '元' : format === '单' ? '单' : '%',
+              }),
+            },
+          ],
+        }),
+      });
+
+      if (response.ok) {
+        const rawBody = await response.text();
+        const result = JSON.parse(rawBody) as Record<string, unknown>;
+        const choices = (result?.choices as Array<unknown>) || [];
+        const firstChoice = (choices[0] as Record<string, unknown>) || {};
+        const message = (firstChoice.message as Record<string, unknown>) || {};
+        const content = (message.content as string) || '';
+        const parsed = DashboardService.parseLlmJsonObject(content) as Record<string, unknown> | null;
+
+        return {
+          dimension,
+          status,
+          changeRate,
+          insight: String(parsed?.insight || basicInsight),
+          shouldAlert,
+          current,
+          previous,
+        };
+      }
+    } catch {
+      // LLM 调用失败，使用基础洞察
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    return {
+      dimension,
+      status,
+      changeRate,
+      insight: basicInsight,
+      shouldAlert,
+      current,
+      previous,
+    };
+  }
+
+  /**
+   * 并行分析所有维度（第一阶段）
+   */
+  private static async analyzeAllDimensions(
+    summary: {
+      currentControllable: { gmv: number; orders: number; aov: number };
+      previousControllable: { gmv: number; orders: number; aov: number };
+      currentShare: number;
+      previousShare: number;
+    },
+    platform: Array<{
+      name: string;
+      currentGmv: number;
+      previousGmv: number;
+      currentOrders: number;
+      previousOrders: number;
+      gmvGrowth: number;
+    }>,
+    apiUrl: string,
+    apiKey: string,
+    model: string
+  ): Promise<DimensionAnalysisResult[]> {
+    const { currentControllable, previousControllable, currentShare, previousShare } = summary;
+
+    // 1. GMV 分析
+    const gmvAnalysis = DashboardService.analyzeSingleDimension(
+      '可控渠道 GMV',
+      currentControllable.gmv,
+      previousControllable.gmv,
+      10,
+      '¥',
+      apiUrl,
+      apiKey,
+      model
+    );
+
+    // 2. 订单量分析
+    const ordersAnalysis = DashboardService.analyzeSingleDimension(
+      '可控渠道订单量',
+      currentControllable.orders,
+      previousControllable.orders,
+      10,
+      '单',
+      apiUrl,
+      apiKey,
+      model
+    );
+
+    // 3. 客单价分析
+    const aovAnalysis = DashboardService.analyzeSingleDimension(
+      '可控渠道客单价',
+      currentControllable.aov,
+      previousControllable.aov,
+      5,
+      '¥',
+      apiUrl,
+      apiKey,
+      model
+    );
+
+    // 4. 渠道占比分析
+    const shareAnalysis = DashboardService.analyzeSingleDimension(
+      '可控渠道占比',
+      currentShare,
+      previousShare,
+      3,
+      '%',
+      apiUrl,
+      apiKey,
+      model
+    );
+
+    // 5. 平台表现分析（找出最好/最差平台）
+    let platformInsight = '';
+    let platformStatus: 'normal' | 'warning' | 'critical' = 'normal';
+    let platformShouldAlert = false;
+    let platformChangeRate = 0;
+
+    if (platform.length > 0) {
+      let bestPlatform = '';
+      let bestGrowth = -Infinity;
+      let worstPlatform = '';
+      let worstGrowth = Infinity;
+
+      for (const p of platform) {
+        const g = p.gmvGrowth;
+        if (g > bestGrowth) {
+          bestGrowth = g;
+          bestPlatform = p.name;
+        }
+        if (g < worstGrowth) {
+          worstGrowth = g;
+          worstPlatform = p.name;
+        }
+      }
+
+      if (worstGrowth <= -15) {
+        platformStatus = 'critical';
+        platformShouldAlert = true;
+        platformInsight = `${worstPlatform} 近7天 GMV 下滑${Math.abs(worstGrowth).toFixed(1)}%，需重点关注`;
+        platformChangeRate = worstGrowth;
+      } else if (bestGrowth >= 15) {
+        platformStatus = 'warning';
+        platformShouldAlert = true;
+        platformInsight = `${bestPlatform} 近7天 GMV 增长${bestGrowth.toFixed(1)}%，表现突出`;
+        platformChangeRate = bestGrowth;
+      } else {
+        platformInsight = '各平台表现正常，无明显异常';
+      }
+    }
+
+    const results = await Promise.all([gmvAnalysis, ordersAnalysis, aovAnalysis, shareAnalysis]);
+
+    // 添加平台分析结果（同步计算，不需要等待）
+    results.push({
+      dimension: '平台表现',
+      status: platformStatus,
+      changeRate: platformChangeRate,
+      insight: platformInsight,
+      shouldAlert: platformShouldAlert,
+      current: 0,
+      previous: 0,
+    });
+
+    console.info('[daily-ops-llm-dimension] 分析完成', results.map(r => ({ dimension: r.dimension, status: r.status, insight: r.insight.slice(0, 30) })));
+
+    return results;
+  }
+
+  /**
+   * 综合分析（第二阶段）
+   */
+  private static async synthesizeCards(
+    dimensionResults: DimensionAnalysisResult[],
+    apiUrl: string,
+    apiKey: string,
+    model: string,
+    fallbackCards: DailyOpsCard[]
+  ): Promise<{ cards: DailyOpsCard[] | null; status: DailyOpsLlmStatus }> {
+    const triggeredAt = new Date().toISOString();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60000);
+
+    try {
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model,
+          temperature: 0.2,
+          response_format: { type: 'json_object' },
+          messages: [
+            {
+              role: 'system',
+              content: '你是电商运营分析助手。基于以下各维度分析结果，综合评估生成运营建议卡片。输出必须是 JSON 对象，结构为 {"cards":[...]}，cards 最多 8 条。每条必须包含 id/title/level/tag/scope/insight/action/metric(unit/current/previous/changeRate)。level 仅 high|medium|low，tag 仅 可执行|观察项，scope 仅 controllable|all，metric.unit 仅 ¥|单|%。不要输出 markdown。',
+            },
+            {
+              role: 'user',
+              content: JSON.stringify({ dimensions: dimensionResults }),
+            },
+          ],
+        }),
+      });
+
+      if (!response.ok) {
+        console.info('[daily-ops-llm] synthesize failed: request_failed', { status: response.status });
+        return {
+          cards: null,
+          status: { enabled: true, attempted: true, used: false, reason: 'request_failed', model, triggeredAt },
+        };
+      }
+
+      const rawBody = await response.text();
+      const result = JSON.parse(rawBody) as Record<string, unknown>;
+      const choices = (result?.choices as Array<unknown>) || [];
+      const firstChoice = (choices[0] as Record<string, unknown>) || {};
+      const message = (firstChoice.message as Record<string, unknown>) || {};
+      const content = (message.content as string) || '';
+
+      if (!content) {
+        return {
+          cards: null,
+          status: { enabled: true, attempted: true, used: false, reason: 'empty_content', model, triggeredAt },
+        };
+      }
+
+      const parsed = DashboardService.parseLlmJsonObject(content) as Record<string, unknown> | null
+      if (!parsed) {
+        return {
+          cards: null,
+          status: { enabled: true, attempted: true, used: false, reason: 'invalid_json', model, triggeredAt },
+        };
+      }
+
+      const cards = DashboardService.sanitizeDailyOpsCards(parsed.cards, fallbackCards);
+      if (!cards || !cards.length) {
+        return {
+          cards: null,
+          status: { enabled: true, attempted: true, used: false, reason: 'invalid_cards', model, triggeredAt },
+        };
+      }
+
+      console.info('[daily-ops-llm] synthesize success', { cards: cards.length, model });
+      return {
+        cards,
+        status: { enabled: true, attempted: true, used: true, reason: 'success', model, triggeredAt },
+      };
+    } catch {
+      console.info('[daily-ops-llm] synthesize failed: request_failed');
+      return {
+        cards: null,
+        status: { enabled: true, attempted: true, used: false, reason: 'request_failed', model, triggeredAt },
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   public static async generateDailyOpsCardsWithLlm(input: {
     now: string;
     summary: {
@@ -1352,111 +1709,35 @@ export class DashboardService {
         status: { enabled: true, attempted: false, used: false, reason: 'missing_config', model: model || '', triggeredAt },
       };
     }
-    console.info('[daily-ops-llm] attempt', { model, apiUrl });
-    console.info('[daily-ops-llm] request_body:', JSON.stringify({
+
+    console.info('[daily-ops-llm] ===== 两阶段分析开始 =====', { model, apiUrl });
+
+    // 第一阶段：并行分析所有维度
+    const dimensionResults = await DashboardService.analyzeAllDimensions(
+      {
+        currentControllable: input.summary.currentControllable,
+        previousControllable: input.summary.previousControllable,
+        currentShare: input.summary.currentShare,
+        previousShare: input.summary.previousShare,
+      },
+      input.platform,
+      apiUrl,
+      apiKey,
+      model
+    );
+
+    // 第二阶段：综合分析
+    const result = await DashboardService.synthesizeCards(
+      dimensionResults,
+      apiUrl,
+      apiKey,
       model,
-      temperature: 0.2,
-      response_format: { type: 'json_object' },
-      messages: [
-        {
-          role: 'system',
-          content: '你是电商运营分析助手。基于输入数据生成卡片建议，输出必须是 JSON 对象，结构为 {"cards":[...]}，cards 最多 8 条。每条必须包含 id/title/level/tag/scope/insight/action/metric(unit/current/previous/changeRate)。level 仅 high|medium|low，tag 仅 可执行|观察项，scope 仅 controllable|all，metric.unit 仅 ¥|单|%。不要输出 markdown。',
-        },
-        {
-          role: 'user',
-          content: JSON.stringify(input).slice(0, 500) + '...(truncated)',
-        },
-      ],
-    }));
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 60000);
-    try {
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
-        },
-        signal: controller.signal,
-        body: JSON.stringify({
-          model,
-          temperature: 0.2,
-          response_format: { type: 'json_object' },
-          messages: [
-            {
-              role: 'system',
-              content: '你是电商运营分析助手。基于输入数据生成卡片建议，输出必须是 JSON 对象，结构为 {"cards":[...]}，cards 最多 8 条。每条必须包含 id/title/level/tag/scope/insight/action/metric(unit/current/previous/changeRate)。level 仅 high|medium|low，tag 仅 可执行|观察项，scope 仅 controllable|all，metric.unit 仅 ¥|单|%。不要输出 markdown。',
-            },
-            {
-              role: 'user',
-              content: JSON.stringify(input),
-            },
-          ],
-        }),
-      });
-      console.info('[daily-ops-llm] response status:', response.status, 'ok:', response.ok);
-      console.info('[daily-ops-llm] response_headers:', [...response.headers.entries()].reduce((acc, [k, v]) => ({ ...acc, [k]: v }), {}));
-      if (!response.ok) {
-        console.info('[daily-ops-llm] failed: request_failed', { status: response.status });
-        const body = await response.text();
-        console.info('[daily-ops-llm] error_body:', body);
-        return {
-          cards: null,
-          status: { enabled: true, attempted: true, used: false, reason: 'request_failed', model, triggeredAt },
-        };
-      }
-      let rawBody: string;
-      try {
-        rawBody = await response.text();
-      } catch (bodyErr) {
-        console.info('[daily-ops-llm] failed: body_read_error', { error: String(bodyErr) });
-        return {
-          cards: null,
-          status: { enabled: true, attempted: true, used: false, reason: 'request_failed', model, triggeredAt },
-        };
-      }
-      console.info('[daily-ops-llm] response_body:', rawBody.slice(0, 1000));
-      const result = JSON.parse(rawBody) as
-        { choices?: Array<{ message?: { content?: string } }> }
-        | null;
-      const content = String(result?.choices?.[0]?.message?.content || '').trim();
-      if (!content) {
-        console.info('[daily-ops-llm] failed: empty_content');
-        return {
-          cards: null,
-          status: { enabled: true, attempted: true, used: false, reason: 'empty_content', model, triggeredAt },
-        };
-      }
-      const parsed = DashboardService.parseLlmJsonObject(content) as { cards?: unknown } | null;
-      if (!parsed) {
-        console.info('[daily-ops-llm] failed: invalid_json');
-        return {
-          cards: null,
-          status: { enabled: true, attempted: true, used: false, reason: 'invalid_json', model, triggeredAt },
-        };
-      }
-      const cards = DashboardService.sanitizeDailyOpsCards(parsed.cards, input.fallbackCards);
-      if (!cards || !cards.length) {
-        console.info('[daily-ops-llm] failed: invalid_cards');
-        return {
-          cards: null,
-          status: { enabled: true, attempted: true, used: false, reason: 'invalid_cards', model, triggeredAt },
-        };
-      }
-      console.info('[daily-ops-llm] success', { cards: cards.length, model });
-      return {
-        cards,
-        status: { enabled: true, attempted: true, used: true, reason: 'success', model, triggeredAt },
-      };
-    } catch {
-      console.info('[daily-ops-llm] failed: request_failed');
-      return {
-        cards: null,
-        status: { enabled: true, attempted: true, used: false, reason: 'request_failed', model, triggeredAt },
-      };
-    } finally {
-      clearTimeout(timeout);
-    }
+      input.fallbackCards
+    );
+
+    console.info('[daily-ops-llm] ===== 两阶段分析结束 =====', result.status);
+
+    return result;
   }
 
   static getDailyOpsCards = unstable_cache(

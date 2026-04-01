@@ -22,3 +22,18 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+    depends_on:
+      - cron
+
+  cron:
+    image: alpine:3.19
+    restart: always
+    command:
+      - /bin/sh
+      - -c
+      - |
+        apk add --no-cache curl
+        echo "0 9 * * * curl -X POST http://dashboard:3000/api/dashboard/daily-ops/generate" >> /etc/crontabs/root
+        crond -f
+    depends_on:
+      - dashboard
