@@ -90,6 +90,8 @@ interface ReportData {
       third: number[];
       prevSelf: number[];
       prevThird: number[];
+      offline: number[];
+      prevOffline: number[];
     };
   };
   platforms?: PlatformRow[];
@@ -651,6 +653,14 @@ const ReportsPage: React.FC = () => {
                           data: data?.channelAnalysis?.trend?.third || []
                         },
                         {
+                          name: '线下渠道',
+                          type: 'line',
+                          stack: 'Total',
+                          areaStyle: {},
+                          emphasis: { focus: 'series' },
+                          data: data?.channelAnalysis?.trend?.offline || []
+                        },
+                        {
                           name: '自有渠道同期',
                           type: 'line',
                           lineStyle: { type: 'dashed' },
@@ -663,6 +673,13 @@ const ReportsPage: React.FC = () => {
                           lineStyle: { type: 'dashed' },
                           emphasis: { focus: 'series' },
                           data: data?.channelAnalysis?.trend?.prevThird || []
+                        },
+                        {
+                          name: '线下渠道同期',
+                          type: 'line',
+                          lineStyle: { type: 'dashed' },
+                          emphasis: { focus: 'series' },
+                          data: data?.channelAnalysis?.trend?.prevOffline || []
                         }
                       ]
                     }}

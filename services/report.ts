@@ -22,6 +22,13 @@ type ValidOrderLite = {
   specId: string | null;
 };
 
+type OfflineOrderLite = {
+  createdAt: Date;
+  totalAmount: number | null;
+  platform: string | null;
+  promotionChannel: string | null;
+};
+
 type ReportScope = 'all' | 'self';
 type ReportPeriod = 'week' | 'biweek' | 'month' | 'current_week' | 'current_month';
 
@@ -74,7 +81,7 @@ export class ReportService {
     const prevEndDate = new Date(startDate);
     const prevStartDate = new Date(prevEndDate.getTime() - duration);
 
-    const [allOrders, validOrders] = await Promise.all([
+    const [allOrders, validOrders, offlineOrders] = await Promise.all([
       prisma.onlineOrder.findMany({
         select: {
           createdAt: true,
@@ -100,13 +107,23 @@ export class ReportService {
           specId: true,
         },
       }),
+      // 线下订单
+      prisma.order.findMany({
+        where: { status: { notIn: ['REFUNDED', 'CANCELLED', 'REJECTED'] } },
+        select: {
+          createdAt: true,
+          totalAmount: true,
+          platform: true,
+          promotionChannel: true,
+        },
+      }),
     ]);
 
-    const currentData = ReportService.fetchPeriodData(allOrders, validOrders, startDate, endDate, scope);
-    const prevData = ReportService.fetchPeriodData(allOrders, validOrders, prevStartDate, prevEndDate, scope);
+    const currentData = ReportService.fetchPeriodData(allOrders, validOrders, offlineOrders, startDate, endDate, scope);
+    const prevData = ReportService.fetchPeriodData(allOrders, validOrders, offlineOrders, prevStartDate, prevEndDate, scope);
     const platformData = ReportService.fetchPlatformData(validOrders, startDate, endDate, scope);
     const productData = await ReportService.fetchDeviceData(validOrders, startDate, endDate, scope);
-    const channelAnalysis = scope === 'all' ? ReportService.fetchChannelAnalysis(validOrders, startDate, endDate, prevStartDate, prevEndDate) : null;
+    const channelAnalysis = scope === 'all' ? ReportService.fetchChannelAnalysis(validOrders, offlineOrders, startDate, endDate, prevStartDate, prevEndDate) : null;
     const trendData = ReportService.fetchTrendData(validOrders, startDate, endDate, prevStartDate, prevEndDate, scope);
     const zulinData = await (async () => {
       if (scope !== 'self') {
@@ -394,34 +411,31 @@ export class ReportService {
       .map((index) => rows[index]);
   }
 
-  private static fetchChannelAnalysis(validOrders: ValidOrderLite[], start: Date, end: Date, prevStart?: Date, prevEnd?: Date) {
+  private static fetchChannelAnalysis(validOrders: ValidOrderLite[], offlineOrders: OfflineOrderLite[], start: Date, end: Date, prevStart?: Date, prevEnd?: Date) {
     const duration = end.getTime() - start.getTime();
     const summary = {
       self: { gmv: 0, count: 0 },
       third: { gmv: 0, count: 0 },
       prevSelf: { gmv: 0, count: 0 },
-      prevThird: { gmv: 0, count: 0 }
+      prevThird: { gmv: 0, count: 0 },
+      offline: { gmv: 0, count: 0 },
+      prevOffline: { gmv: 0, count: 0 }
     };
 
-    const dailyData: Record<string, { self: number, third: number }> = {};
-    const prevDailyData: Record<string, { self: number, third: number }> = {};
+    const dailyData: Record<string, { self: number, third: number, offline: number }> = {};
+    const prevDailyData: Record<string, { self: number, third: number, offline: number }> = {};
     const iterDate = new Date(start);
     iterDate.setHours(0, 0, 0, 0);
 
     // 初始化当期和同期的数据结构，使用相同的日期范围
     while (iterDate < end) {
       const dateStr = ReportService.dateKey(iterDate);
-      dailyData[dateStr] = { self: 0, third: 0 };
-      prevDailyData[dateStr] = { self: 0, third: 0 };
+      dailyData[dateStr] = { self: 0, third: 0, offline: 0 };
+      prevDailyData[dateStr] = { self: 0, third: 0, offline: 0 };
       iterDate.setDate(iterDate.getDate() + 1);
     }
 
-    // 旧代码：只初始化 prevStart 到 prevEnd 的范围 - 删除
-    // if (prevStart && prevEnd) {
-    //   const iterPrevDate = new Date(prevStart);
-    //   ...
-    // }
-
+    // 处理线上订单
     for (const item of validOrders) {
       const name = ReportService.normalizePlatform(item.platform, item.promotionChannel);
       const isSelf = ReportService.SELF_PLATFORMS.includes(name);
@@ -443,12 +457,9 @@ export class ReportService {
 
       // 同期数据 - 映射到对应的当期日期
       if (prevStart && prevEnd && ReportService.inRange(item.createdAt, prevStart, prevEnd)) {
-        // 计算该订单在同期中的天数偏移
         const daysFromPrevStart = Math.floor((item.createdAt.getTime() - prevStart.getTime()) / (1000 * 60 * 60 * 24));
-        // 映射到对应的当期日期
         const targetDate = new Date(start.getTime() + daysFromPrevStart * 24 * 60 * 60 * 1000);
         const dateStr = ReportService.dateKey(targetDate);
-        console.log('[DEBUG channel] prev order:', ReportService.dateKey(item.createdAt), '-> mapped to', dateStr, 'isSelf:', isSelf, 'platform:', name);
         if (isSelf) {
           summary.prevSelf.gmv += gmv;
           summary.prevSelf.count += 1;
@@ -458,6 +469,29 @@ export class ReportService {
           summary.prevThird.count += 1;
           if (prevDailyData[dateStr]) prevDailyData[dateStr].third += gmv;
         }
+      }
+    }
+
+    // 处理线下订单
+    for (const item of offlineOrders) {
+      const gmv = item.totalAmount || 0;
+
+      // 当期数据
+      if (ReportService.inRange(item.createdAt, start, end)) {
+        const dateStr = ReportService.dateKey(item.createdAt);
+        summary.offline.gmv += gmv;
+        summary.offline.count += 1;
+        if (dailyData[dateStr]) dailyData[dateStr].offline += gmv;
+      }
+
+      // 同期数据 - 映射到对应的当期日期
+      if (prevStart && prevEnd && ReportService.inRange(item.createdAt, prevStart, prevEnd)) {
+        const daysFromPrevStart = Math.floor((item.createdAt.getTime() - prevStart.getTime()) / (1000 * 60 * 60 * 24));
+        const targetDate = new Date(start.getTime() + daysFromPrevStart * 24 * 60 * 60 * 1000);
+        const dateStr = ReportService.dateKey(targetDate);
+        summary.prevOffline.gmv += gmv;
+        summary.prevOffline.count += 1;
+        if (prevDailyData[dateStr]) prevDailyData[dateStr].offline += gmv;
       }
     }
 
@@ -475,7 +509,9 @@ export class ReportService {
         self: orderedDates.map(d => Number((dailyData[d].self || 0).toFixed(2))),
         third: orderedDates.map(d => Number((dailyData[d].third || 0).toFixed(2))),
         prevSelf: orderedDates.map(d => Number((prevDailyData[d]?.self || 0).toFixed(2))),
-        prevThird: orderedDates.map(d => Number((prevDailyData[d]?.third || 0).toFixed(2)))
+        prevThird: orderedDates.map(d => Number((prevDailyData[d]?.third || 0).toFixed(2))),
+        offline: orderedDates.map(d => Number((dailyData[d].offline || 0).toFixed(2))),
+        prevOffline: orderedDates.map(d => Number((prevDailyData[d]?.offline || 0).toFixed(2)))
       }
     };
   }
@@ -488,6 +524,7 @@ export class ReportService {
   private static fetchPeriodData(
     allOrders: AllOrderLite[],
     validOrders: ValidOrderLite[],
+    offlineOrders: OfflineOrderLite[],
     start: Date,
     end: Date,
     scope: ReportScope
@@ -497,6 +534,7 @@ export class ReportService {
     let totalOrdersCount = 0;
     let refundCount = 0;
 
+    // 线上有效订单
     for (const order of validOrders) {
       if (!ReportService.inRange(order.createdAt, start, end)) continue;
       if (!ReportService.inScope(order.platform, order.promotionChannel, scope)) continue;
@@ -504,6 +542,7 @@ export class ReportService {
       orderCount += 1;
     }
 
+    // 线上所有订单（计算总订单数和退款）
     for (const order of allOrders) {
       if (!ReportService.inRange(order.createdAt, start, end)) continue;
       if (!ReportService.inScope(order.platform, order.promotionChannel, scope)) continue;
@@ -513,8 +552,16 @@ export class ReportService {
       }
     }
 
+    // 线下订单GMV（不管scope，都计入大盘）
+    let offlineGmv = 0;
+    for (const order of offlineOrders) {
+      if (!ReportService.inRange(order.createdAt, start, end)) continue;
+      offlineGmv += order.totalAmount || 0;
+    }
+
     return {
       gmv,
+      offlineGmv,
       orderCount,
       totalOrders: totalOrdersCount,
       refundCount,
