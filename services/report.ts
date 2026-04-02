@@ -28,7 +28,7 @@ type ReportPeriod = 'week' | 'biweek' | 'month' | 'current_week' | 'current_mont
 export class ReportService {
   private static readonly VALID_STATUSES = ['COMPLETED', 'PENDING_SHIPMENT', 'RENTING', 'RETURNING', 'PENDING_RECEIPT', 'BOUGHT_OUT', 'SHIPPED_PENDING_CONFIRMATION', 'WAIT_PAY', 'PENDING_REVIEW'];
   private static readonly REFUND_STATUSES = ['CLOSED', 'REFUNDED', 'CANCELED'];
-  private static readonly SELF_PLATFORMS = ['赞晨', '支付宝小程序', '闲鱼'];
+  private static readonly SELF_PLATFORMS = ['赞晨', '支付宝小程序'];
   private static readonly ZULIN_TREND_POINTS = 10;
 
   static async getReportData(
@@ -448,6 +448,7 @@ export class ReportService {
         // 映射到对应的当期日期
         const targetDate = new Date(start.getTime() + daysFromPrevStart * 24 * 60 * 60 * 1000);
         const dateStr = ReportService.dateKey(targetDate);
+        console.log('[DEBUG channel] prev order:', ReportService.dateKey(item.createdAt), '-> mapped to', dateStr, 'isSelf:', isSelf, 'platform:', name);
         if (isSelf) {
           summary.prevSelf.gmv += gmv;
           summary.prevSelf.count += 1;
